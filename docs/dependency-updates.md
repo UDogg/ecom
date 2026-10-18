@@ -11,6 +11,7 @@ and no deprecation turns into a migration project.
 |---|---|---|
 | pip | the five Python services (`requirements*.txt`, exact pins) | minor + patch grouped; each major alone |
 | gomod | `services/bff`, `services/catalog-reader`, `bench/loadgen`, `tools/go` | minor + patch grouped; each major alone |
+| npm | `web` (Preact, Vite, TypeScript, Vitest; exact pins) | minor + patch grouped; each major alone |
 | maven | `services/auth-service` (Spring Boot parent and plugins) | minor + patch grouped; each major alone |
 | docker | base images of every Dockerfile | patch grouped; a new runtime (`python:3.15`, `golang:1.28`) alone |
 | docker-compose | Postgres, RabbitMQ, Mailpit, opsbox | patch grouped; others alone; no Postgres majors (see below) |
@@ -32,6 +33,7 @@ so a new advisory or a runner change shows up even when nothing was pushed.
 | Python | `pytest.ini` turns `DeprecationWarning` and `PendingDeprecationWarning` into errors (Django's `RemovedInDjangoXXWarning` included) |
 | Go | `staticcheck -checks SA1019` fails on any use of a deprecated API; `go vet`; `govulncheck` |
 | Java | `javac -Xlint:deprecation,removal` with `failOnWarning` |
+| TypeScript | `tsc --strict` in every web build; Vitest |
 | Docker | the `compose` job builds every image, so a broken base image fails the pull request |
 
 A green grouped update is therefore safe to merge as is. A red one names exactly what was

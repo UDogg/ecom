@@ -8,8 +8,8 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"sort"
 	"strings"
-	"time"
 	"unicode"
 
 	"babelbazaar/bff/internal/contract"
@@ -22,18 +22,53 @@ func unsafeMethod(m string) bool {
 	return m != http.MethodGet && m != http.MethodHead && m != http.MethodOptions
 }
 
-// api serves every /api/* route declared in the contract, and nothing else.
-func (s *Server) api(w http.ResponseWriter, r *http.Request) {
-	e, params, otherMethod := s.contract.Match(r.Method, r.URL.EscapedPath())
-	if e == nil {
-		if otherMethod {
-			s.problem(w, r, http.StatusMethodNotAllowed, "method-not-allowed", "Method not allowed", "This endpoint does not accept "+r.Method+".")
-			return
+// routes registers one handler per path in the contract, and nothing else: a path that is not
+// declared there falls through to the 404 handler, a method that is not declared gets 405.
+func (s *Server) routes(mux *http.ServeMux) {
+	byPath := map[string]map[string]*contract.Endpoint{}
+	var paths []string
+	for _, e := range s.contract.Endpoints {
+		if byPath[e.Path] == nil {
+			byPath[e.Path] = map[string]*contract.Endpoint{}
+			paths = append(paths, e.Path)
 		}
-		s.notFound(w, r)
-		return
+		byPath[e.Path][e.Method] = e
 	}
+	for _, path := range paths {
+		methods := byPath[path]
+		allow := make([]string, 0, len(methods))
+		for m := range methods {
+			allow = append(allow, m)
+		}
+		sort.Strings(allow)
+		allowHeader := strings.Join(allow, ", ")
+		names := methods[allow[0]].Params() // the same for every method of a path
+		mux.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
+			var params map[string]string
+			if len(names) > 0 {
+				params = make(map[string]string, len(names))
+				for _, name := range names {
+					v := r.PathValue(name)
+					if !contract.ValidUUID(v) {
+						s.notFound(w, r) // ids are UUIDs: anything else is not a resource here
+						return
+					}
+					params[name] = strings.ToLower(v)
+				}
+			}
+			e := methods[r.Method]
+			if e == nil {
+				w.Header().Set("Allow", allowHeader)
+				s.problem(w, r, http.StatusMethodNotAllowed, "method-not-allowed", "Method not allowed", "This endpoint does not accept "+r.Method+".")
+				return
+			}
+			s.api(w, r, e, params)
+		})
+	}
+}
 
+// api serves one declared endpoint.
+func (s *Server) api(w http.ResponseWriter, r *http.Request, e *contract.Endpoint, params map[string]string) {
 	_, sess := s.currentSession(r)
 	var token string
 	if e.Auth != contract.Public {
@@ -96,6 +131,12 @@ func (s *Server) api(w http.ResponseWriter, r *http.Request) {
 		// Re-encode what was validated: duplicate keys and other parser quirks never reach the core.
 		upstreamBody, _ = json.Marshal(body)
 	}
+	if e.Cache > 0 { // public and anonymous by construction (contract.New checks it)
+		s.cache.serve(w, e.Name+" "+e.UpstreamPath(params)+"?"+query, e.Cache, func(w http.ResponseWriter) {
+			s.forward(w, r, e, params, query, nil, "", nil)
+		})
+		return
+	}
 	s.forward(w, r, e, params, query, upstreamBody, token, sess)
 }
 
@@ -124,8 +165,8 @@ func headerValueOK(v string) bool {
 func (s *Server) forward(w http.ResponseWriter, r *http.Request, e *contract.Endpoint, params map[string]string,
 	query string, body []byte, token string, sess *session.Session) {
 	timeout := s.cfg.UpstreamTimeout
-	if e.TimeoutMS > 0 {
-		timeout = time.Duration(e.TimeoutMS) * time.Millisecond
+	if e.Timeout > 0 {
+		timeout = e.Timeout
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), timeout)
 	defer cancel()
@@ -203,10 +244,6 @@ func (s *Server) forward(w http.ResponseWriter, r *http.Request, e *contract.End
 	if resp.StatusCode >= 400 {
 		schema, contentType = "problem", "application/problem+json"
 	}
-	if schema == "" {
-		s.upstreamFailed(w, r, e, errors.New("endpoint has no response schema"))
-		return
-	}
 	shaped, err := s.contract.Shape(schema, decoded)
 	if err != nil {
 		// The core broke the contract. Fail closed rather than guess what is safe to show.
@@ -228,7 +265,7 @@ func (s *Server) upstreamFailed(w http.ResponseWriter, r *http.Request, e *contr
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("X-Degraded", "true")
 		w.WriteHeader(e.Degrade.Status)
-		w.Write(e.Degrade.Body)
+		io.WriteString(w, e.Degrade.Body)
 		return
 	}
 	if errors.Is(err, context.DeadlineExceeded) {

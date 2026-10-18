@@ -61,9 +61,9 @@ public class SecurityConfig {
     SecurityFilterChain applicationChain(HttpSecurity http) throws Exception {
         http.authorizeHttpRequests(a -> a
                         // /api/auth/**: registration, plus the privileged doors that check their own credentials
-                        .requestMatchers("/healthz", "/readyz", "/error", "/login", "/api/auth/**").permitAll()
+                        .requestMatchers("/healthz", "/readyz", "/error", "/login", "/auth-ui.css", "/api/auth/**").permitAll()
                         .anyRequest().authenticated())
-                .formLogin(Customizer.withDefaults())
+                .formLogin(f -> f.loginPage("/login")) // LoginPage renders it
                 // The JSON registration API uses no cookies (the BFF calls it, signed), so CSRF does not apply to it.
                 .csrf(c -> c.ignoringRequestMatchers("/api/auth/**"));
         return http.build();

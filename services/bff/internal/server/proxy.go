@@ -10,12 +10,12 @@ import (
 
 const maxAuthPageBody = 1 << 20
 
-// The sign-in pages are HTML forms with inline styles; nothing else may load.
-const authPageCSP = "default-src 'none'; style-src 'self' 'unsafe-inline'; img-src data:; form-action 'self'; " +
+// The sign-in page is an HTML form and one stylesheet: no scripts, no inline styles, nothing else.
+const authPageCSP = "default-src 'none'; style-src 'self'; img-src data:; form-action 'self'; " +
 	"frame-ancestors 'none'; base-uri 'none'"
 
 // proxyAuthPage forwards GET /oauth2/authorize, GET /login, POST /login and the
-// page's stylesheet (GET /default-ui.css) to
+// page's stylesheet (GET /auth-ui.css) to
 // auth-service, signed. These are the only auth-service routes a browser can
 // reach, and only through here; the token, revocation and key endpoints are
 // called by the BFF itself.

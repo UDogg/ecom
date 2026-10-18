@@ -3,7 +3,7 @@
 //	browser --(session cookie, CSRF token)--> BFF --(signed call, user's JWT)--> core service
 //
 // What it does for every request, in order: security headers, honeypot check,
-// rate limit, route by the API contract (unknown routes 404), session and role
+// rate limit, route by the compiled-in route table (undeclared routes 404), session and role
 // check, CSRF for state changes, validate query and body against the contract,
 // refresh the user's token if needed, sign and send the upstream call, shape
 // the response to the contract. Tokens never leave the server.
@@ -51,8 +51,13 @@ type Server struct {
 	log      *slog.Logger
 	security *slog.Logger
 	limits   map[string]*limiter
+	site     http.Handler // the storefront (nil: not served by this BFF)
+	cache    *microCache
 	now      func() time.Time
 }
+
+// ServeSite makes the BFF serve the storefront app at every path that is not an API or sign-in route.
+func (s *Server) ServeSite(site http.Handler) { s.site = site }
 
 // New wires a server. upstreamBase is the transport under the signer (tests inject one).
 func New(cfg *config.Config, c *contract.Contract, log *slog.Logger, upstreamBase http.RoundTripper) *Server {
@@ -85,6 +90,7 @@ func New(cfg *config.Config, c *contract.Contract, log *slog.Logger, upstreamBas
 		Leeway:   30 * time.Second,
 		Source:   jwt.HTTPKeySource(client, cfg.Upstreams["auth"].String()+"/oauth2/jwks"),
 	}
+	s.cache = newMicroCache(10_000, s.clock)
 	s.limits = map[string]*limiter{
 		"default":  newLimiter(cfg.RateDefaultPerMinute, s.clock),
 		"auth":     newLimiter(cfg.RateAuthPerMinute, s.clock),
@@ -115,9 +121,17 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /oauth2/authorize", s.proxyAuthPage)
 	mux.HandleFunc("GET /login", s.proxyAuthPage)
 	mux.HandleFunc("POST /login", s.proxyAuthPage)
-	mux.HandleFunc("GET /default-ui.css", s.proxyAuthPage) // the sign-in page's stylesheet
-	mux.HandleFunc("/api/", s.api)
-	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) { s.notFound(w, r) })
+	mux.HandleFunc("GET /auth-ui.css", s.proxyAuthPage) // the sign-in page's stylesheet
+	s.routes(mux)                                          // the contract's endpoints (internal/contract/routes.go)
+	mux.HandleFunc("/api/", s.notFound)
+	mux.HandleFunc("/auth/", s.notFound)
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		if s.site == nil {
+			s.notFound(w, r)
+			return
+		}
+		s.site.ServeHTTP(w, r)
+	})
 	return s.middleware(mux)
 }
 
@@ -169,6 +183,11 @@ func (s *Server) middleware(next http.Handler) http.Handler {
 			s.security.Warn("honeypot touched", "path", r.URL.Path, "method", r.Method, "ip", s.clientIP(r),
 				"user_agent", r.UserAgent(), "trace_id", trace)
 			s.notFound(w, r) // indistinguishable from any other unknown path
+			return
+		}
+		// Fingerprinted app files are served from memory and cached for a year: they do not use the API's budget.
+		if strings.HasPrefix(r.URL.Path, "/assets/") && s.site != nil {
+			next.ServeHTTP(w, r)
 			return
 		}
 		if ok, wait := s.limits["default"].allow("ip:" + s.clientIP(r)); !ok {

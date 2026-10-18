@@ -8,12 +8,16 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"runtime/debug"
+	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
 	"babelbazaar/bff/internal/config"
 	"babelbazaar/bff/internal/contract"
 	"babelbazaar/bff/internal/server"
+	"babelbazaar/bff/internal/web"
 )
 
 func main() {
@@ -33,17 +37,30 @@ func main() {
 		os.Exit(0)
 	}
 	log := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo})).With("service", "bff")
+	if limit := memoryLimit(); limit > 0 {
+		log.Info("memory limit from the container", "bytes", limit)
+	}
 	cfg, err := config.Load()
 	if err != nil {
 		log.Error("refusing to start", "err", err)
 		os.Exit(1)
 	}
-	c, err := contract.Load(contract.Default, []string{"auth", "commerce", "catalog", "intelligence"}, server.LimitNames())
+	c, err := contract.Default(server.LimitNames())
 	if err != nil {
 		log.Error("refusing to start: the API contract is invalid", "err", err)
 		os.Exit(1)
 	}
 	srv := server.New(cfg, c, log, nil)
+	files := 0
+	if cfg.WebRoot != "" {
+		site, err := web.Load(os.DirFS(cfg.WebRoot))
+		if err != nil {
+			log.Error("refusing to start: cannot load the storefront", "web_root", cfg.WebRoot, "err", err)
+			os.Exit(1)
+		}
+		srv.ServeSite(site)
+		files = site.Files()
+	}
 
 	httpServer := &http.Server{
 		Addr:              cfg.ListenAddr,
@@ -68,9 +85,31 @@ func main() {
 		defer done()
 		httpServer.Shutdown(ctx)
 	}()
-	log.Info("listening", "addr", cfg.ListenAddr, "public_url", cfg.Origin(), "endpoints", len(c.Endpoints))
+	log.Info("listening", "addr", cfg.ListenAddr, "public_url", cfg.Origin(), "endpoints", len(c.Endpoints), "web_files", files)
 	if err := httpServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		log.Error("server failed", "err", err)
 		os.Exit(1)
 	}
+}
+
+// memoryLimit sets the Go heap's soft limit to 90% of the container's memory
+// (cgroup v2 memory.max), unless GOMEMLIMIT is given: the GC then works harder
+// near the limit instead of the kernel killing the process. GOMAXPROCS already
+// follows the container's CPU quota (Go 1.25+), so the BFF uses exactly the
+// CPU it is given and scales with the instance.
+func memoryLimit() int64 {
+	if os.Getenv("GOMEMLIMIT") != "" {
+		return 0
+	}
+	raw, err := os.ReadFile("/sys/fs/cgroup/memory.max")
+	if err != nil {
+		return 0
+	}
+	n, err := strconv.ParseInt(strings.TrimSpace(string(raw)), 10, 64)
+	if err != nil || n <= 0 { // "max": no limit
+		return 0
+	}
+	limit := n / 10 * 9
+	debug.SetMemoryLimit(limit)
+	return limit
 }

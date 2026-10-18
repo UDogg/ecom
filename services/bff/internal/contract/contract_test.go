@@ -6,69 +6,106 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 )
 
-var services = []string{"catalog", "commerce", "auth", "intelligence"}
 var limits = []string{"register", "checkout"}
 
 func load(t *testing.T) *Contract {
 	t.Helper()
-	c, err := Load(Default, services, limits)
+	c, err := Default(limits)
 	if err != nil {
 		t.Fatal(err)
 	}
 	return c
 }
 
+func endpoint(t *testing.T, c *Contract, method, path string) *Endpoint {
+	t.Helper()
+	for _, e := range c.Endpoints {
+		if e.Method == method && e.Path == path {
+			return e
+		}
+	}
+	t.Fatalf("no endpoint %s %s", method, path)
+	return nil
+}
+
 func TestTheShippedContractLoads(t *testing.T) {
 	c := load(t)
-	if len(c.Endpoints) < 20 {
+	if len(c.Endpoints) < 23 {
 		t.Fatalf("only %d endpoints", len(c.Endpoints))
+	}
+	if e := endpoint(t, c, "GET", "/api/catalog/products/{id}"); len(e.Params()) != 1 || e.Params()[0] != "id" {
+		t.Fatalf("params %v", e.Params())
 	}
 }
 
 func TestBrokenContractsAreRejectedAtBoot(t *testing.T) {
-	cases := map[string]string{
-		"unknown key":       `{"schemas":{"problem":{}},"endpoints":[],"extra":1}`,
-		"no problem schema": `{"schemas":{},"endpoints":[]}`,
-		"dangling schema":   `{"schemas":{"problem":{},"a":{"x":{"schema":"nope"}}},"endpoints":[]}`,
-		"unknown service":   `{"schemas":{"problem":{}},"endpoints":[{"name":"x","method":"GET","path":"/api/x","service":"db","upstream":"/x","auth":"public"}]}`,
-		"bad auth":          `{"schemas":{"problem":{}},"endpoints":[{"name":"x","method":"GET","path":"/api/x","service":"auth","upstream":"/x","auth":"admin"}]}`,
-		"forwarded authz":   `{"schemas":{"problem":{}},"endpoints":[{"name":"x","method":"GET","path":"/api/x","service":"auth","upstream":"/x","auth":"public","request_headers":["Authorization"]}]}`,
-		"forwarded gateway": `{"schemas":{"problem":{}},"endpoints":[{"name":"x","method":"GET","path":"/api/x","service":"auth","upstream":"/x","auth":"public","request_headers":["X-Gateway-Signature"]}]}`,
-		"GET with body":     `{"schemas":{"problem":{}},"endpoints":[{"name":"x","method":"GET","path":"/api/x","service":"auth","upstream":"/x","auth":"public","body":{}}]}`,
-		"duplicate route":   `{"schemas":{"problem":{}},"endpoints":[{"name":"x","method":"GET","path":"/api/x","service":"auth","upstream":"/x","auth":"public"},{"name":"y","method":"GET","path":"/api/x","service":"auth","upstream":"/y","auth":"public"}]}`,
-		"non-api path":      `{"schemas":{"problem":{}},"endpoints":[{"name":"x","method":"GET","path":"/internal","service":"auth","upstream":"/x","auth":"public"}]}`,
+	problem := map[string]Schema{"problem": {}}
+	ok := func() *Endpoint {
+		return &Endpoint{Name: "x", Method: "GET", Path: "/api/x", Service: Auth, Upstream: "/x", Auth: Public, Response: "problem"}
 	}
-	for name, raw := range cases {
-		if _, err := Load([]byte(raw), services, limits); err == nil {
+	with := func(change func(*Endpoint)) []*Endpoint { e := ok(); change(e); return []*Endpoint{e} }
+	cases := map[string]struct {
+		schemas   map[string]Schema
+		endpoints []*Endpoint
+	}{
+		"no problem schema": {map[string]Schema{}, nil},
+		"dangling schema":   {map[string]Schema{"problem": {}, "a": {"x": Object("nope")}}, nil},
+		"unknown service":   {problem, with(func(e *Endpoint) { e.Service = "db" })},
+		"bad auth":          {problem, with(func(e *Endpoint) { e.Auth = "admin" })},
+		"no response":       {problem, with(func(e *Endpoint) { e.Response = "" })},
+		"forwarded authz":   {problem, with(func(e *Endpoint) { e.RequestHeaders = []string{"Authorization"} })},
+		"forwarded gateway": {problem, with(func(e *Endpoint) { e.RequestHeaders = []string{"X-Gateway-Signature"} })},
+		"GET with body":     {problem, with(func(e *Endpoint) { e.Body = Fields{} })},
+		"duplicate route":   {problem, append(with(func(*Endpoint) {}), with(func(e *Endpoint) { e.Name = "y" })...)},
+		"non-api path":      {problem, with(func(e *Endpoint) { e.Path = "/internal" })},
+		"unused parameter":  {problem, with(func(e *Endpoint) { e.Path = "/api/x/{id}" })},
+		"wildcard":          {problem, with(func(e *Endpoint) { e.Path, e.Upstream = "/api/x/{rest...}", "/x/{rest...}" })},
+		"bad degrade":       {problem, with(func(e *Endpoint) { e.Degrade = &Degrade{Status: 200, Body: "{"} })},
+		"unknown limit":     {problem, with(func(e *Endpoint) { e.Limit = "burst" })},
+		"cached private":    {problem, with(func(e *Endpoint) { e.Auth, e.Cache = Customer, time.Second })},
+		"cached write":      {problem, with(func(e *Endpoint) { e.Method, e.Cache = "POST", time.Second })},
+	}
+	for name, tc := range cases {
+		if _, err := New(tc.schemas, tc.endpoints, limits); err == nil {
 			t.Errorf("%s: accepted", name)
 		}
 	}
 }
 
-func TestMatchRequiresUUIDParameters(t *testing.T) {
-	c := load(t)
-	e, params, _ := c.Match("GET", "/api/catalog/products/7520AD71-763d-470f-b7a4-754f1949f811")
-	if e == nil || e.Name != "catalog.get" || params["id"] != "7520ad71-763d-470f-b7a4-754f1949f811" {
-		t.Fatalf("got %v %v", e, params)
+func TestUpstreamPathAndUUIDs(t *testing.T) {
+	e := endpoint(t, load(t), "GET", "/api/catalog/products/{id}")
+	if e.UpstreamPath(map[string]string{"id": "7520ad71-763d-470f-b7a4-754f1949f811"}) != "/api/catalog/products/7520ad71-763d-470f-b7a4-754f1949f811" {
+		t.Error("upstream path not filled")
 	}
-	for _, p := range []string{"/api/catalog/products/../orders", "/api/catalog/products/1%20or%201=1", "/api/catalog/products/x/y"} {
-		if e, _, _ := c.Match("GET", p); e != nil {
-			t.Errorf("%s matched %s", p, e.Name)
+	for _, bad := range []string{"..", "1 or 1=1", "7520ad71-763d-470f-b7a4-754f1949f81", ""} {
+		if ValidUUID(bad) {
+			t.Errorf("%q accepted as a UUID", bad)
 		}
 	}
-	if _, _, other := c.Match("DELETE", "/api/catalog/products"); !other {
-		t.Error("wrong method on a known path should be distinguishable (405)")
+}
+
+func TestPaymentRoutes(t *testing.T) {
+	c := load(t)
+	pay := endpoint(t, c, "POST", "/api/orders/{id}/pay")
+	if _, err := pay.ValidateBody([]byte(`{"source":"tok_visa"}`)); err != nil {
+		t.Fatal(err)
 	}
-	if e.UpstreamPath(params) != "/api/catalog/products/7520ad71-763d-470f-b7a4-754f1949f811" {
-		t.Error("upstream path not filled")
+	for _, raw := range []string{`{"source":"4242424242424242"}`, `{}`, `{"source":"tok_visa","amount_minor":1}`} {
+		if _, err := pay.ValidateBody([]byte(raw)); err == nil {
+			t.Errorf("accepted %s", raw)
+		}
+	}
+	if endpoint(t, c, "POST", "/api/admin/orders/{id}/refund").Auth != ShopOwner {
+		t.Error("refunds are for the shop owner")
 	}
 }
 
 func TestQueryOnlyDeclaredParametersCanonicallyEncoded(t *testing.T) {
 	c := load(t)
-	e, _, _ := c.Match("GET", "/api/catalog/products")
+	e := endpoint(t, c, "GET", "/api/catalog/products")
 	q, err := e.QueryString(url.Values{"q": {"ceramic mug"}, "page": {"2"}, "category": {"kitchen"}})
 	if err != nil || q != "category=kitchen&page=2&q=ceramic+mug" {
 		t.Fatalf("got %q %v", q, err)
@@ -82,7 +119,7 @@ func TestQueryOnlyDeclaredParametersCanonicallyEncoded(t *testing.T) {
 
 func TestBodyRefusesUnknownFieldsAndBadTypes(t *testing.T) {
 	c := load(t)
-	e, _, _ := c.Match("POST", "/api/checkout")
+	e := endpoint(t, c, "POST", "/api/checkout")
 	if _, err := e.ValidateBody([]byte(`{"items":[{"product_id":"7520ad71-763d-470f-b7a4-754f1949f811","quantity":2}]}`)); err != nil {
 		t.Fatal(err)
 	}
@@ -105,7 +142,7 @@ func TestBodyRefusesUnknownFieldsAndBadTypes(t *testing.T) {
 
 func TestRegistrationCannotSmuggleRoles(t *testing.T) {
 	c := load(t)
-	e, _, _ := c.Match("POST", "/api/auth/register")
+	e := endpoint(t, c, "POST", "/api/auth/register")
 	if _, err := e.ValidateBody([]byte(`{"email":"a@b.co","password":"long-enough-pass","roles":["shop_owner"]}`)); err == nil {
 		t.Fatal("roles accepted")
 	}
@@ -134,7 +171,7 @@ func TestShapeStripsInternalFields(t *testing.T) {
 }
 
 func TestUndeclaredNestedObjectsAreNeverPassedThrough(t *testing.T) {
-	c, _ := Load([]byte(`{"schemas":{"problem":{},"s":{"a":"a"}},"endpoints":[]}`), services, limits)
+	c, _ := New(map[string]Schema{"problem": {}, "s": Same("a")}, nil, limits)
 	if _, err := c.Shape("s", map[string]any{"a": map[string]any{"secret": 1}}); err == nil {
 		t.Fatal("an object without a schema was exposed")
 	}

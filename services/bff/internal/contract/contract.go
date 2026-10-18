@@ -1,4 +1,6 @@
-// Package contract is the public API, declared in one file (contract.json).
+// Package contract is the public API, declared in Go (routes.go) and compiled
+// into the binary: the deployed API is exactly what was reviewed, with nothing
+// to edit on a running host.
 //
 // Every endpoint a browser can call, every query parameter and body field it
 // can send, and every response field it can see is listed there and nowhere
@@ -17,6 +19,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 	"unicode/utf8"
 )
 
@@ -34,78 +37,84 @@ const (
 	ShopOwner = "shop_owner"
 )
 
+// The core services the BFF talks to. Their internal base URLs come from config.
+const (
+	Auth         = "auth"
+	Commerce     = "commerce"
+	Catalog      = "catalog"
+	Intelligence = "intelligence"
+)
+
+// Services lists every upstream a route may name.
+var Services = []string{Auth, Commerce, Catalog, Intelligence}
+
 // FieldSpec says how one upstream response field appears publicly.
 type FieldSpec struct {
-	As     string `json:"as"`
-	Schema string `json:"schema"`
-	List   string `json:"list"`
-	Raw    bool   `json:"raw"`
-}
-
-func (f *FieldSpec) UnmarshalJSON(b []byte) error {
-	var as string
-	if json.Unmarshal(b, &as) == nil {
-		f.As = as
-		return nil
-	}
-	type plain FieldSpec
-	return json.Unmarshal(b, (*plain)(f))
+	As     string
+	Schema string
+	List   string
+	Raw    bool
 }
 
 // Schema maps upstream field names to their public form.
 type Schema map[string]FieldSpec
 
-// Field is one allowed request body field.
+// Field is one allowed request field (query parameter or body field).
 type Field struct {
-	Type     string           `json:"type"` // string, int, bool, uuid, slug, sku, email, image_key, list, strings
-	Min      *int64           `json:"min"`
-	Max      *int64           `json:"max"`
-	Required bool             `json:"required"`
-	Enum     []string         `json:"enum"`
-	Item     map[string]Field `json:"item"` // for list: the allowed object fields
-	Of       *Field           `json:"of"`   // for strings: each element
+	Type     string // string, int, bool, uuid, slug, sku, email, image_key, list, strings
+	Min      *int64
+	Max      *int64
+	Required bool
+	Enum     []string
+	Item     Fields // for list: the allowed object fields
+	Of       *Field // for strings: each element
 }
+
+// Fields are the allowed fields of a query string or JSON object.
+type Fields map[string]Field
 
 // Degrade is what the BFF answers when an optional upstream is down.
 type Degrade struct {
-	Status int             `json:"status"`
-	Body   json.RawMessage `json:"body"`
+	Status int
+	Body   string // JSON
 }
 
 // Endpoint is one public route.
 type Endpoint struct {
-	Name            string           `json:"name"`
-	Method          string           `json:"method"`
-	Path            string           `json:"path"`
-	Service         string           `json:"service"`
-	Upstream        string           `json:"upstream"`
-	Auth            string           `json:"auth"`
-	Query           map[string]Field `json:"query"`
-	Body            map[string]Field `json:"body"`
-	Response        string           `json:"response"`
-	RequestHeaders  []string         `json:"request_headers"`
-	ResponseHeaders []string         `json:"response_headers"`
-	Limit           string           `json:"limit"`
-	TimeoutMS       int              `json:"timeout_ms"`
-	Degrade         *Degrade         `json:"degrade"`
+	Name            string
+	Method          string
+	Path            string // a net/http pattern; {name} segments must be UUIDs
+	Service         string
+	Upstream        string
+	Auth            string
+	Query           Fields
+	Body            Fields
+	Response        string
+	RequestHeaders  []string
+	ResponseHeaders []string
+	Limit           string
+	Timeout         time.Duration
+	Degrade         *Degrade
+	Cache           time.Duration // public GETs only: share one upstream answer for this long
 
-	segments []string
+	params []string
 }
 
-// Contract is the parsed, validated contract.
+// Params are the path parameter names, in order.
+func (e *Endpoint) Params() []string { return e.params }
+
+// Contract is the validated contract.
 type Contract struct {
-	Schemas   map[string]Schema `json:"schemas"`
-	Endpoints []*Endpoint       `json:"endpoints"`
+	Schemas   map[string]Schema
+	Endpoints []*Endpoint
 }
 
-// Load parses and validates; any mistake is fatal at boot, never at request time.
-func Load(raw []byte, services []string, limits []string) (*Contract, error) {
-	var c Contract
-	dec := json.NewDecoder(strings.NewReader(string(raw)))
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(&c); err != nil {
-		return nil, fmt.Errorf("contract: %w", err)
-	}
+// Default is the compiled-in contract (routes.go), validated against the rate limits the server has.
+func Default(limits []string) (*Contract, error) { return New(schemas, endpoints, limits) }
+
+// New validates a contract; any mistake is fatal at boot, never at request time.
+func New(schemas map[string]Schema, endpoints []*Endpoint, limits []string) (*Contract, error) {
+	c := Contract{Schemas: schemas, Endpoints: endpoints}
 	if _, ok := c.Schemas["problem"]; !ok {
 		return nil, fmt.Errorf("contract: a `problem` schema is required (it shapes every error response)")
 	}
@@ -128,16 +137,20 @@ func Load(raw []byte, services []string, limits []string) (*Contract, error) {
 			return nil, fmt.Errorf("contract: %s: method %q", e.Name, e.Method)
 		case !strings.HasPrefix(e.Path, "/api/") || !strings.HasPrefix(e.Upstream, "/"):
 			return nil, fmt.Errorf("contract: %s: public paths start with /api/, upstream paths with /", e.Name)
-		case !oneOf(e.Service, services...):
+		case !oneOf(e.Service, Services...):
 			return nil, fmt.Errorf("contract: %s: unknown service %q", e.Name, e.Service)
 		case !oneOf(e.Auth, Public, Customer, ShopOwner):
 			return nil, fmt.Errorf("contract: %s: auth must be public, customer or shop_owner", e.Name)
-		case e.Response != "" && c.Schemas[e.Response] == nil:
+		case e.Response == "" || c.Schemas[e.Response] == nil:
 			return nil, fmt.Errorf("contract: %s: unknown response schema %q", e.Name, e.Response)
 		case e.Limit != "" && !oneOf(e.Limit, limits...):
 			return nil, fmt.Errorf("contract: %s: unknown rate limit %q", e.Name, e.Limit)
 		case e.Body != nil && e.Method == "GET":
 			return nil, fmt.Errorf("contract: %s: GET cannot take a body", e.Name)
+		case e.Cache > 0 && (e.Method != "GET" || e.Auth != Public):
+			return nil, fmt.Errorf("contract: %s: only public GET endpoints may be cached (nothing user-specific is ever shared)", e.Name)
+		case e.Degrade != nil && !json.Valid([]byte(e.Degrade.Body)):
+			return nil, fmt.Errorf("contract: %s: degrade body is not JSON", e.Name)
 		}
 		for _, h := range e.RequestHeaders {
 			if strings.EqualFold(h, "Authorization") || strings.EqualFold(h, "Cookie") || strings.HasPrefix(strings.ToLower(h), "x-gateway-") {
@@ -150,7 +163,16 @@ func Load(raw []byte, services []string, limits []string) (*Contract, error) {
 		if err := checkFields(e.Name, e.Body); err != nil {
 			return nil, err
 		}
-		e.segments = strings.Split(strings.Trim(e.Path, "/"), "/")
+		e.params = nil
+		for _, seg := range strings.Split(strings.Trim(e.Path, "/"), "/") {
+			if strings.HasPrefix(seg, "{") {
+				name := strings.Trim(seg, "{}")
+				if name == "" || strings.HasSuffix(name, "...") || !strings.Contains(e.Upstream, "{"+name+"}") {
+					return nil, fmt.Errorf("contract: %s: path parameter %q must be a single segment used in the upstream path", e.Name, seg)
+				}
+				e.params = append(e.params, name)
+			}
+		}
 		key := e.Method + " " + e.Path
 		if routes[key] {
 			return nil, fmt.Errorf("contract: %s: duplicate route %s", e.Name, key)
@@ -160,7 +182,7 @@ func Load(raw []byte, services []string, limits []string) (*Contract, error) {
 	return &c, nil
 }
 
-func checkFields(endpoint string, fields map[string]Field) error {
+func checkFields(endpoint string, fields Fields) error {
 	for name, f := range fields {
 		if !oneOf(f.Type, "string", "int", "bool", "uuid", "slug", "sku", "email", "image_key", "list", "strings") {
 			return fmt.Errorf("contract: %s: field %s has unknown type %q", endpoint, name, f.Type)
@@ -186,44 +208,8 @@ func oneOf(s string, options ...string) bool {
 	return false
 }
 
-// Match finds the endpoint for a request. Path parameters ({id}) must be UUIDs.
-// It returns the endpoint, the parameters, and whether the path exists with
-// another method (so the caller can answer 405 rather than 404).
-func (c *Contract) Match(method, path string) (*Endpoint, map[string]string, bool) {
-	segs := strings.Split(strings.Trim(path, "/"), "/")
-	otherMethod := false
-	for _, e := range c.Endpoints {
-		params, ok := matchSegments(e.segments, segs)
-		if !ok {
-			continue
-		}
-		if e.Method == method {
-			return e, params, false
-		}
-		otherMethod = true
-	}
-	return nil, nil, otherMethod
-}
-
-func matchSegments(pattern, segs []string) (map[string]string, bool) {
-	if len(pattern) != len(segs) {
-		return nil, false
-	}
-	params := map[string]string{}
-	for i, p := range pattern {
-		if strings.HasPrefix(p, "{") && strings.HasSuffix(p, "}") {
-			if !uuidRE.MatchString(segs[i]) {
-				return nil, false
-			}
-			params[p[1:len(p)-1]] = strings.ToLower(segs[i])
-			continue
-		}
-		if p != segs[i] {
-			return nil, false
-		}
-	}
-	return params, true
-}
+// ValidUUID reports whether a path parameter is a UUID (the only kind the API has).
+func ValidUUID(s string) bool { return uuidRE.MatchString(s) }
 
 // UpstreamPath fills the endpoint's upstream template with matched parameters.
 func (e *Endpoint) UpstreamPath(params map[string]string) string {
@@ -374,7 +360,7 @@ func (e *Endpoint) ValidateBody(raw []byte) (map[string]any, error) {
 	return body, nil
 }
 
-func validateObject(fields map[string]Field, obj map[string]any, prefix string, errs ValidationError, depth int) {
+func validateObject(fields Fields, obj map[string]any, prefix string, errs ValidationError, depth int) {
 	if depth > 4 {
 		errs[prefix] = "nested too deeply"
 		return

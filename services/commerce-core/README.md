@@ -56,4 +56,4 @@ python3 scripts/bff.py --role owner POST /api/admin/products \
 
 commerce-core has no host port and refuses unsigned requests, so you reach
 it through the BFF: `python3 scripts/bff.py --role owner GET /api/admin/dashboard`.
-The public paths are mapped in `services/bff/internal/contract/contract.json`.
+The public paths are mapped in `services/bff/internal/contract/routes.go`.

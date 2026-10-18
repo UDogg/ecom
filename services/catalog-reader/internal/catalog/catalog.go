@@ -117,6 +117,15 @@ func intParam(q map[string][]string, name string, min, max int64) (*int64, error
 	return &n, nil
 }
 
+// orders are the only sort orders: fixed SQL, chosen by name, never built from input.
+var orders = map[string]string{
+	"relevance":  `ts_rank(to_tsvector('english', name || ' ' || description || ' ' || coalesce(category_name, '')), websearch_to_tsquery('english', $4)) DESC, name, id`,
+	"newest":     `created_at DESC, id`,
+	"price_asc":  `price_minor ASC, name, id`,
+	"price_desc": `price_minor DESC, name, id`,
+	"name":       `name, id`,
+}
+
 func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 	q, err := url.ParseQuery(r.URL.RawQuery) // URL.Query() would silently drop malformed pairs
 	if err != nil {
@@ -131,6 +140,10 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 	text := strings.TrimSpace(q.Get("q"))
 	if len([]rune(text)) > 100 {
 		errs["q"] = "at most 100 characters"
+	}
+	sort := q.Get("sort")
+	if _, ok := orders[sort]; !ok && sort != "" {
+		errs["sort"] = "must be one of relevance, newest, price_asc, price_desc, name"
 	}
 	low, err1 := intParam(q, "min_price", 0, math.MaxInt64)
 	high, err2 := intParam(q, "max_price", 0, math.MaxInt64)
@@ -157,7 +170,7 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 	where := `($1 = '' OR category_slug = $1)
 		AND ($2::bigint IS NULL OR price_minor >= $2)
 		AND ($3::bigint IS NULL OR price_minor <= $3)
-		AND ($4 = '' OR to_tsvector('english', name || ' ' || description) @@ websearch_to_tsquery('english', $4)
+		AND ($4 = '' OR to_tsvector('english', name || ' ' || description || ' ' || coalesce(category_name, '')) @@ websearch_to_tsquery('english', $4)
 		     OR name ILIKE '%' || $5 || '%' OR lower(sku) = lower($4))`
 	args := []any{category, low, high, text, likeEscaper.Replace(text)}
 	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
@@ -168,9 +181,12 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, err)
 		return
 	}
-	order := `created_at DESC, id`
-	if text != "" {
-		order = `ts_rank(to_tsvector('english', name || ' ' || description), websearch_to_tsquery('english', $4)) DESC, name, id`
+	order := orders["newest"]
+	switch {
+	case sort != "" && sort != "relevance":
+		order = orders[sort]
+	case text != "":
+		order = orders["relevance"]
 	}
 	rows, err := h.DB.Query(ctx, `SELECT `+columns+` FROM catalog_public WHERE `+where+` ORDER BY `+order+` LIMIT $6 OFFSET $7`,
 		append(args, s, (p-1)*s)...)

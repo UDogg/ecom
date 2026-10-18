@@ -14,6 +14,7 @@ import (
 
 type Config struct {
 	ListenAddr   string
+	WebRoot      string   // the built storefront (index.html and assets/); empty: API only
 	PublicURL    *url.URL // the BFF's public origin; also the OIDC issuer the browser sees
 	Issuer       string
 	CookieSecure bool
@@ -68,7 +69,7 @@ func parseURL(name, def string) (*url.URL, error) {
 
 // Load reads and validates the configuration.
 func Load() (*Config, error) {
-	c := &Config{ListenAddr: env("BFF_LISTEN_ADDR", ":8080"), ClientID: env("OIDC_CLIENT_ID", "bff")}
+	c := &Config{ListenAddr: env("BFF_LISTEN_ADDR", ":8080"), ClientID: env("OIDC_CLIENT_ID", "bff"), WebRoot: env("WEB_ROOT", "")}
 	var err error
 	if c.PublicURL, err = parseURL("PUBLIC_API_BASE_URL", "http://localhost:8080"); err != nil {
 		return nil, err

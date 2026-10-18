@@ -235,7 +235,7 @@ func newHarness(t *testing.T) *harness {
 		SessionIdle: 30 * time.Minute, SessionLifetime: 8 * time.Hour, MaxSessions: 1000, MaxBodyBytes: 256 << 10,
 		UpstreamTimeout: 2 * time.Second, RateDefaultPerMinute: 1000, RateAuthPerMinute: 100, RateRegisterPerMinute: 5,
 		RateCheckoutPerMinute: 100}
-	c, err := contract.Load(contract.Default, []string{"auth", "commerce", "catalog", "intelligence"}, LimitNames())
+	c, err := contract.Default(LimitNames())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -422,7 +422,7 @@ func TestOnlyTheSignInPagesAreProxied(t *testing.T) {
 	if hs.authCore.count() != 0 {
 		t.Error("a non-allow-listed path reached auth-service")
 	}
-	if r := hs.do("GET", "/default-ui.css", ""); r.Code == 404 && hs.authCore.count() == 0 {
+	if r := hs.do("GET", "/auth-ui.css", ""); r.Code == 404 && hs.authCore.count() == 0 {
 		t.Error("the sign-in stylesheet is not proxied")
 	}
 }
@@ -630,5 +630,67 @@ func TestCoreRejectingTheTokenSignsTheSessionOut(t *testing.T) {
 	hs.commerce.handler = jsonReply(200, `{"items":[]}`)
 	if r := hs.do("GET", "/api/orders", ""); r.Code != 401 {
 		t.Fatalf("session survived a core 401: %d", r.Code)
+	}
+}
+
+func TestPayGoesToThatOrderOnly(t *testing.T) {
+	hs := newHarness(t)
+	hs.signIn()
+	h := []string{"Content-Type", "application/json", "X-CSRF-Token", hs.csrf()}
+	before := hs.commerce.count()
+	for _, bad := range []string{"/api/orders/not-a-uuid/pay", "/api/orders/7520ad71-763d-470f-b7a4-754f1949f811/pay/extra"} {
+		if r := hs.do("POST", bad, `{"source":"tok_visa"}`, h...); r.Code != 404 {
+			t.Errorf("%s: %d", bad, r.Code)
+		}
+	}
+	if r := hs.do("GET", "/api/orders/7520ad71-763d-470f-b7a4-754f1949f811/pay", ""); r.Code != 405 || r.Header().Get("Allow") != "POST" {
+		t.Errorf("GET pay: %d %q", r.Code, r.Header().Get("Allow"))
+	}
+	if hs.commerce.count() != before {
+		t.Fatal("a refused call travelled to commerce-core")
+	}
+	r := hs.do("POST", "/api/orders/7520AD71-763D-470F-B7A4-754F1949F811/pay", `{"source":"tok_visa"}`, h...)
+	if r.Code != 200 || hs.commerce.last().Path != "/api/commerce/orders/7520ad71-763d-470f-b7a4-754f1949f811/pay" {
+		t.Fatalf("%d %s %+v", r.Code, r.Body, hs.commerce.last())
+	}
+}
+
+func TestTheStorefrontNeverShadowsTheAPI(t *testing.T) {
+	hs := newHarness(t)
+	hs.srv.ServeSite(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { io.WriteString(w, "<!doctype html>app") }))
+	if r := hs.do("GET", "/products/7520ad71-763d-470f-b7a4-754f1949f811", ""); r.Code != 200 || !strings.Contains(r.Body.String(), "app") {
+		t.Fatalf("app route: %d", r.Code)
+	}
+	for _, path := range []string{"/api/nope", "/api/orders/x/pay", "/auth/nope", "/.env", "/api/commerce/orders"} {
+		if r := hs.do("GET", path, ""); r.Code != 404 || !strings.Contains(r.Header().Get("Content-Type"), "problem+json") {
+			t.Errorf("%s: %d %s", path, r.Code, r.Header().Get("Content-Type"))
+		}
+	}
+}
+
+func TestPublicCatalogReadsShareOneUpstreamCall(t *testing.T) {
+	hs := newHarness(t)
+	before := hs.catalog.count()
+	var wg sync.WaitGroup
+	for i := 0; i < 20; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if r := hs.do("GET", "/api/catalog/products?q=mug", ""); r.Code != 200 {
+				t.Errorf("%d", r.Code)
+			}
+		}()
+	}
+	wg.Wait()
+	if n := hs.catalog.count() - before; n != 1 {
+		t.Fatalf("%d upstream calls for 20 identical reads", n)
+	}
+	if r := hs.do("GET", "/api/catalog/products?q=cup", ""); hs.catalog.count()-before != 2 || r.Header().Get("X-Cache") != "MISS" {
+		t.Fatal("a different query was served from the cache")
+	}
+	hs.srv.now = func() time.Time { return time.Now().Add(2 * time.Second) }
+	hs.do("GET", "/api/catalog/products?q=mug", "")
+	if hs.catalog.count()-before != 3 {
+		t.Fatal("an expired entry was served")
 	}
 }

@@ -46,7 +46,13 @@ check() {
   if "${COMPOSE[@]}" ps --status running --services 2>/dev/null | grep -qx bff; then
     ok "the stack is already running (it will be updated in place)"
   else
-    for p in 8080 8025 15672 5432; do port_busy "$p" && bad "port $p is already in use by something else" || ok "port $p free"; done
+    # Ports this stack already publishes are fine (a re-run); anything else holding them is not.
+    ours=$("${COMPOSE[@]}" ps --format '{{.Publishers}}' 2>/dev/null || true)
+    for p in 8080 8025 15672 5432; do
+      if ! port_busy "$p"; then ok "port $p free"
+      elif grep -qE ":$p([],]|$)" <<<"$ours"; then ok "port $p is this stack's"
+      else bad "port $p is already in use by something else"; fi
+    done
   fi
 }
 

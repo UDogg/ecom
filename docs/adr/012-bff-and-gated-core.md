@@ -29,7 +29,7 @@ services.
    RS256 JWT (issuer, audience `bff`, expiry) against cached JWKS, then
    roles, then object-level ownership. The BFF's checks are a first line, not
    the authority.
-4. **The API contract lives in the BFF** (`internal/contract/contract.json`,
+4. **The API contract lives in the BFF** (`internal/contract/routes.go`, Go code
    compiled in). It is an allow-list of endpoints, typed query and body
    fields (unknown fields are refused), and response schemas that copy only
    the listed fields. Public paths are decoupled from core paths

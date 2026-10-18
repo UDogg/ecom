@@ -89,9 +89,13 @@ func TestFiltersAndSearch(t *testing.T) {
 		"/api/catalog/products?category=kitchen":              "KTL-001,MUG-001",
 		"/api/catalog/products?min_price=1500&max_price=2000": "CND-001",
 		"/api/catalog/products?q=smoke":                       "CND-001",
+		"/api/catalog/products?q=kitchen":                     "MUG-001,KTL-001", // category names are searched too
 		"/api/catalog/products?q=mug":                         "MUG-001",
 		"/api/catalog/products?q=ktl-001":                     "KTL-001",
 		"/api/catalog/products?q=%25":                         "", // a literal %, not a wildcard
+		"/api/catalog/products?sort=price_asc":                "MUG-001,CND-001,KTL-001",
+		"/api/catalog/products?sort=price_desc":               "KTL-001,CND-001,MUG-001",
+		"/api/catalog/products?sort=name&category=kitchen":    "MUG-001,KTL-001",
 	}
 	for target, want := range cases {
 		if _, body := get(t, h, target); skus(body) != want {
@@ -122,7 +126,8 @@ func TestProductShapeMatchesCommerceCore(t *testing.T) {
 func TestBadInputAndMissingProducts(t *testing.T) {
 	h := setup(t)
 	for _, target := range []string{"/api/catalog/products?page=0", "/api/catalog/products?category=Bad%20Slug", "/api/catalog/products?category=kitchen;x=1",
-		"/api/catalog/products?q=" + strings.Repeat("a", 101), "/api/catalog/products?min_price=-1"} {
+		"/api/catalog/products?q=" + strings.Repeat("a", 101), "/api/catalog/products?min_price=-1",
+		"/api/catalog/products?sort=price_minor;DROP"} {
 		if code, _ := get(t, h, target); code != 400 {
 			t.Errorf("%s -> %d", target, code)
 		}

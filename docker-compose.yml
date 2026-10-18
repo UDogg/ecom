@@ -226,6 +226,8 @@ services:
   bff:
     build:
       context: ./services/bff
+      additional_contexts:
+        web: ./web   # the storefront, built into the image (services/bff/Dockerfile)
     profiles: ["core", "full"]
     environment:
       PUBLIC_API_BASE_URL: ${PUBLIC_API_BASE_URL}

@@ -270,4 +270,14 @@ class AuthFlowTest {
         mvc.perform(get("/healthz")).andExpect(status().isOk());
         mvc.perform(get("/readyz")).andExpect(jsonPath("$.status").value("ready"));
     }
+
+    @Test
+    void signInPageIsOursWithACsrfFieldAndNoInlineCode() throws Exception {
+        String html = mvc.perform(get("/login").queryParam("error", ""))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        assertThat(html).contains("name=\"_csrf\"", "href=\"/auth-ui.css\"", "do not match")
+                .doesNotContain("<script", "<style", "style=");
+        mvc.perform(get("/auth-ui.css")).andExpect(status().isOk());
+    }
 }
