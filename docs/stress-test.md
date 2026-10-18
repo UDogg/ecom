@@ -1,5 +1,12 @@
 # The stress arena
 
+> **Try it in your browser:** the Pages site has a live, gamified
+> [Stress Arena](../site/stress.html) that reproduces this demo client-side — thousands of
+> shoppers and a red team whose every attack is refused — with no backend to call. On a
+> deployed site it is at `/<repo>/stress.html` (for this repo,
+> `https://udogg.github.io/ecom/stress.html`). What follows is the real thing: the same
+> scoreboard driven by actual traffic and actual `403`s.
+
 `./run.sh stress` runs a gamified load-and-attack demo against a live stack and scores it
 in the terminal. It exists to show two claims at once, under genuine pressure:
 

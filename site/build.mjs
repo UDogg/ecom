@@ -20,7 +20,7 @@ const published = new Map(groups.flatMap((g) => g.items).map((d) => [d.id, d]));
 
 rmSync(out, { recursive: true, force: true });
 mkdirSync(out, { recursive: true });
-for (const f of ["index.html", "site.css"]) cpSync(join(here, f), join(out, f));
+for (const f of ["index.html", "site.css", "stress.html"]) cpSync(join(here, f), join(out, f));
 cpSync(join(root, "web/public/favicon.svg"), join(out, "favicon.svg"));
 writeFileSync(join(out, ".nojekyll"), "");
 
