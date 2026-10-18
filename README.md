@@ -7,7 +7,7 @@
 | | |
 |---|---|
 | **Type** | Architecture showcase + proof of concept |
-| **Status** | In progress: Phase 1 and 2 transactional core built (`services/commerce-core`); see [Implementation Roadmap](#22-implementation-roadmap) |
+| **Status** | In progress: Phases 1 to 3 built, plus `auth-service` sign-in; see [Implementation Roadmap](#22-implementation-roadmap) |
 | **Runs on** | Docker Compose, free and open-source components only |
 | **Shop owner can** | Sign in to an admin panel, add products (with images), edit them, adjust stock, and remove them |
 | **Live demo** | GitHub Pages, with the whole architecture simulated in the browser (see [section 24](#24-github-pages-demo-mode)) |
@@ -1274,7 +1274,7 @@ Point native processes at `localhost` datastores by using the host-mapped ports 
 
 Begin with a small but realistic workflow, **not** a large collection of services. Add Spring Boot, FastAPI, or Go only where a specific requirement justifies the complexity.
 
-> **What runs today:** `make up` starts PostgreSQL (with per-service roles), `commerce-core`, a one-shot migrator, and the reservation expirer. `make seed`, `make token ROLE=shop_owner`, and `make test` work. The admin and customer APIs are on `http://localhost:8000` until the gateway, auth-service, and web app land. Targets in [section 21](#21-development-workflow) that are not in the `Makefile` yet belong to later phases.
+> **What runs today:** `make up` starts PostgreSQL (with per-service roles), `auth-service` (sign-in on :8081), `commerce-core` (API on :8000), RabbitMQ, `outbox-publisher`, `worker`, Mailpit (:8025), a one-shot migrator, and the reservation expirer. `make seed`, `make token ROLE=owner` (real OIDC sign-in), `make test`, `make worker-status`, `make dlq-replay`, and `make scenario-c` work. The admin and customer APIs are on `http://localhost:8000` until the gateway and web app land. Targets in [section 21](#21-development-workflow) that are not in the `Makefile` yet belong to later phases. Event consumers use plain AMQP rather than Celery tasks; see [ADR 010](docs/adr/010-event-consumers-use-plain-amqp.md).
 
 ### Phase 1: Baseline
 - [x] Domain model and core invariants
@@ -1293,9 +1293,10 @@ Begin with a small but realistic workflow, **not** a large collection of service
 **Exit:** concurrency and transaction tests pass.
 
 ### Phase 3: Asynchronous processing
-- [ ] RabbitMQ integration, worker processes
-- [ ] Retry and dead-letter policies, idempotent consumers
-- [ ] Recovery and reconciliation procedures
+- [x] RabbitMQ integration, worker processes (`services/outbox-publisher`, `services/worker`)
+- [x] Retry and dead-letter policies, idempotent consumers (TTL retry queues, DLQ + replay tool)
+- [x] Recovery procedures (`docs/runbooks/`, `make scenario-c`)
+- [ ] Payment reconciliation (needs `payments-sim`, Phase 4)
 
 **Exit:** broker and worker failure scenarios pass.
 
@@ -1303,7 +1304,7 @@ Begin with a small but realistic workflow, **not** a large collection of service
 - [ ] Next.js storefront and admin panel against the commerce API
 - [ ] Go/Gin `catalog-reader` for a measured read workload
 - [ ] FastAPI `intelligence` and `payments-sim`
-- [ ] Spring Boot `auth-service` and token validation in every service
+- [x] Spring Boot `auth-service` and token validation (commerce-core validates via cached JWKS; later services follow the same pattern)
 - [ ] Versioned API and event contracts
 
 **Exit:** each added service demonstrates a measurable benefit or a required security or isolation property.
@@ -1596,6 +1597,8 @@ Initial decisions (full text in `docs/adr/`):
 | 007 | Payments simulator instead of a hosted provider | Free, deterministic chaos testing on localhost |
 | 008 | Rust deferred | No measured need; avoid adding variables before evaluating the initial design |
 | 009 | Pages demo simulates services in-browser (Service Worker, WASM, Workers) behind the same API contract | Free public showcase; one frontend for demo and live modes |
+| [010](docs/adr/010-event-consumers-use-plain-amqp.md) | Event consumers use plain AMQP, not Celery tasks | Events are a language-neutral contract; Celery's task protocol is Python RPC |
+| [011](docs/adr/011-auth-service-token-design.md) | Token design: PKCE only, `sub` = account UUID, persisted signing key, JWKS cache that survives auth outages | Existing sessions survive auth-service restarts and outages |
 
 ### Rust (future evaluation)
 

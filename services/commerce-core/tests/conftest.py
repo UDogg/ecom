@@ -1,7 +1,9 @@
 import os
 import uuid
 
-os.environ.setdefault("JWT_DEV_HS256_SECRET", "test-only-secret-that-is-long-enough-for-hs256")
+# .env leaves this empty (production-like), so fall back rather than setdefault.
+os.environ["JWT_DEV_HS256_SECRET"] = (os.environ.get("JWT_DEV_HS256_SECRET")
+                                      or "test-only-secret-that-is-long-enough-for-hs256")
 
 import pytest  # noqa: E402
 from django.test import override_settings  # noqa: E402

@@ -6,9 +6,13 @@ tokens that were already issued. An HS256 shared secret is accepted only when
 JWT_DEV_HS256_SECRET is set, for local development and tests.
 """
 
+import json
+import logging
+import threading
+import time
+import urllib.request
 import uuid
 from dataclasses import dataclass, field
-from functools import lru_cache
 
 import jwt
 from django.conf import settings
@@ -19,10 +23,14 @@ SHOP_OWNER = "shop_owner"
 KNOWN_ROLES = {CUSTOMER, SHOP_OWNER}
 
 
+log = logging.getLogger(__name__)
+
+
 @dataclass(frozen=True)
 class Principal:
     id: uuid.UUID
     roles: frozenset = field(default_factory=frozenset)
+    email: str | None = None
 
     is_authenticated = True
     is_anonymous = False
@@ -35,9 +43,58 @@ class Principal:
         return SHOP_OWNER in self.roles
 
 
-@lru_cache(maxsize=4)
-def _jwks_client(url):
-    return jwt.PyJWKClient(url, cache_keys=True, lifespan=300, timeout=3)
+def _fetch_jwks(url):
+    with urllib.request.urlopen(url, timeout=3) as resp:  # noqa: S310 - URL comes from settings
+        return json.load(resp)
+
+
+class JWKSCache:
+    """Signing keys from auth-service, cached locally.
+
+    Keys refresh every `refresh_seconds`. An unknown `kid` (key rotation)
+    triggers an early refetch, at most once per `min_refetch_seconds`. If
+    auth-service is unreachable the last good keys stay in use, so tokens it
+    already issued keep working through an outage (README section 8.4).
+    """
+
+    def __init__(self, url, refresh_seconds=300, min_refetch_seconds=30, fetch=_fetch_jwks, clock=time.monotonic):
+        self.url, self.refresh_seconds, self.min_refetch_seconds = url, refresh_seconds, min_refetch_seconds
+        self._fetch, self._clock = fetch, clock
+        self._keys = None
+        self._fetched_at = self._attempted_at = float("-inf")
+        self._lock = threading.Lock()
+
+    def _refresh(self, now):
+        self._attempted_at = now
+        try:
+            keyset = jwt.PyJWKSet.from_dict(self._fetch(self.url))
+        except Exception as exc:  # noqa: BLE001 - any fetch/parse failure degrades the same way
+            log.warning("JWKS refresh from %s failed: %s", self.url, exc.__class__.__name__)
+            return
+        self._keys = {k.key_id: k for k in keyset.keys}
+        self._fetched_at = now
+
+    def signing_key(self, kid):
+        with self._lock:
+            now = self._clock()
+            if now - self._fetched_at >= self.refresh_seconds and now - self._attempted_at >= self.min_refetch_seconds:
+                self._refresh(now)
+            key = (self._keys or {}).get(kid)
+            if key is None and now - self._attempted_at >= self.min_refetch_seconds:
+                self._refresh(now)
+                key = (self._keys or {}).get(kid)
+        if key is None:
+            raise jwt.InvalidTokenError("signing keys unavailable" if self._keys is None else "unknown signing key")
+        return key.key
+
+
+_jwks_caches = {}
+
+
+def jwks_cache(url):
+    if url not in _jwks_caches:
+        _jwks_caches[url] = JWKSCache(url)
+    return _jwks_caches[url]
 
 
 def decode_token(token):
@@ -52,7 +109,7 @@ def decode_token(token):
     alg = header.get("alg")
 
     if alg == "RS256" and settings.JWT_JWKS_URL:
-        key = _jwks_client(settings.JWT_JWKS_URL).get_signing_key_from_jwt(token).key
+        key = jwks_cache(settings.JWT_JWKS_URL).signing_key(header.get("kid"))
         return jwt.decode(token, key, algorithms=["RS256"], **common)
     if alg == "HS256" and settings.JWT_DEV_HS256_SECRET:
         return jwt.decode(token, settings.JWT_DEV_HS256_SECRET, algorithms=["HS256"], **common)
@@ -78,7 +135,9 @@ class JWTAuthentication(authentication.BaseAuthentication):
             raise exceptions.AuthenticationFailed("Malformed Authorization header.")
         try:
             claims = decode_token(parts[1])
-            principal = Principal(id=uuid.UUID(str(claims["sub"])), roles=roles_from_claims(claims))
+            email = claims.get("email")
+            principal = Principal(id=uuid.UUID(str(claims["sub"])), roles=roles_from_claims(claims),
+                                  email=email if isinstance(email, str) else None)
         except (jwt.PyJWTError, ValueError) as exc:
             raise exceptions.AuthenticationFailed(f"Invalid token: {exc}") from exc
         return principal, claims
@@ -87,10 +146,8 @@ class JWTAuthentication(authentication.BaseAuthentication):
         return self.keyword
 
 
-def issue_dev_token(sub, roles, ttl_seconds=600):
+def issue_dev_token(sub, roles, ttl_seconds=600, email=None):
     """Mint an HS256 token for local development and tests."""
-    import time
-
     if not settings.JWT_DEV_HS256_SECRET:
         raise RuntimeError("JWT_DEV_HS256_SECRET is not set; dev tokens are disabled.")
     now = int(time.time())
@@ -101,6 +158,8 @@ def issue_dev_token(sub, roles, ttl_seconds=600):
         "iat": now,
         "exp": now + ttl_seconds,
     }
+    if email:
+        claims["email"] = email
     if settings.JWT_AUDIENCE:
         claims["aud"] = settings.JWT_AUDIENCE
     return jwt.encode(claims, settings.JWT_DEV_HS256_SECRET, algorithm="HS256")

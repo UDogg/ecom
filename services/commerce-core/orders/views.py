@@ -84,7 +84,8 @@ class CheckoutView(APIView):
         if not data.validated_data["items"]:
             raise serializers.ValidationError({"items": "Checkout needs at least one item."})
         status, body, replayed = services.checkout(request.user.id, key, data.validated_data["items"],
-                                                   trace_ctx=trace_ctx_from(request))
+                                                   trace_ctx=trace_ctx_from(request),
+                                                   customer_email=request.user.email)
         response = Response(body, status=status)
         response["Idempotent-Replayed"] = "true" if replayed else "false"
         return response

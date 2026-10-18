@@ -16,12 +16,16 @@ the fallback contract for `catalog-reader`.
 | Order state machine | `orders/state.py` | transitions from README section 8.2 |
 | Reservation expiry | `expire_reservations` command | `SKIP LOCKED`, re-checks status under lock, releases stock |
 | Transactional outbox | `outbox/` | `emit()` refuses to run outside a transaction; relay uses `SKIP LOCKED`, at-least-once |
-| Local JWT validation | `common/auth.py` | RS256 via JWKS (for auth-service), HS256 dev tokens only when `JWT_DEV_HS256_SECRET` is set |
+| Local JWT validation | `common/auth.py` | RS256 via cached JWKS from auth-service; keeps the last good keys through an auth outage; HS256 dev tokens only when `JWT_DEV_HS256_SECRET` is set |
 | Problem-details errors | `common/errors.py` | `trace_id` taken from `traceparent` |
 | `catalog_public` view | `catalog/migrations/0002_*` | the only relation the `catalog_reader` role can read |
 
-Not yet: payments (`payments-sim`), presigned uploads (MinIO), RabbitMQ sink
-for the outbox, OpenAPI docs. See the roadmap in the root README.
+Events leave through `services/outbox-publisher` (to RabbitMQ) and are
+consumed by `services/worker`. The `outbox_publish` command here is a
+log-sink relay for debugging only.
+
+Not yet: payments (`payments-sim`), presigned uploads (MinIO), and OpenAPI
+docs. See the roadmap in the root README.
 
 ## Run the tests natively
 
@@ -45,7 +49,7 @@ key, adjustments race to zero, and checkout races permanent delete.
 
 ```bash
 make up && make seed
-OWNER=$(make -s token ROLE=shop_owner)
+OWNER=$(make -s token ROLE=owner)    # real sign-in through auth-service
 
 curl -s -X POST localhost:8000/api/commerce/admin/products \
   -H "Authorization: Bearer $OWNER" -H 'Content-Type: application/json' \

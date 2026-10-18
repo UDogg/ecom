@@ -1,0 +1,41 @@
+server:
+  port: 8081
+  forward-headers-strategy: framework
+
+spring:
+  application:
+    name: auth-service
+  datasource:
+    url: jdbc:postgresql://${POSTGRES_HOST:postgres}:${POSTGRES_PORT:5432}/${POSTGRES_DB:shop}?currentSchema=identity
+    username: ${AUTH_DB_USER:auth}
+    password: ${AUTH_DB_PASSWORD:dev-only-auth}
+    hikari:
+      maximum-pool-size: ${AUTH_DB_POOL_SIZE:10}
+      connection-timeout: 5000
+  flyway:
+    schemas: identity
+    default-schema: identity
+  threads:
+    virtual:
+      enabled: true
+
+auth:
+  issuer: ${PUBLIC_AUTH_ISSUER_URL:http://localhost:8081}
+  client-id: ${OIDC_CLIENT_ID:storefront}
+  redirect-uris: ${OIDC_REDIRECT_URIS:http://localhost:3000/auth/callback}
+  cors-allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000}
+  access-token-ttl: ${ACCESS_TOKEN_TTL_SECONDS:600}s
+  signing-key-path: ${AUTH_SIGNING_KEY_PATH:./var/signing-key.json}
+  seed:
+    enabled: ${AUTH_SEED_ENABLED:false}
+    owner-email: ${SEED_OWNER_EMAIL:}
+    owner-password: ${SEED_OWNER_PASSWORD:}
+    customer-email: ${SEED_CUSTOMER_EMAIL:}
+    customer-password: ${SEED_CUSTOMER_PASSWORD:}
+
+logging:
+  level:
+    root: ${LOG_LEVEL:info}
+  structured:
+    format:
+      console: ecs

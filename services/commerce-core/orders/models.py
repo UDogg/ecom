@@ -21,6 +21,8 @@ class Order(models.Model):
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     customer_id = models.UUIDField(db_index=True)
+    # From the token at checkout, for order e-mails. Optional: tokens may omit it.
+    customer_email = models.EmailField(max_length=254, null=True, blank=True)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING_PAYMENT)
     total_minor = models.BigIntegerField()
     currency = models.CharField(max_length=3)

@@ -1,0 +1,16 @@
+spring:
+  datasource:
+    url: ${AUTH_TEST_DB_URL:jdbc:postgresql://localhost:5432/auth_test?currentSchema=identity}
+    username: ${AUTH_TEST_DB_USER:postgres}
+    password: ${AUTH_TEST_DB_PASSWORD:postgres}
+
+auth:
+  issuer: http://issuer.test
+  redirect-uris: http://localhost:3000/auth/callback
+  signing-key-path: ${java.io.tmpdir}/babel-bazaar-auth-test-key.json
+  seed:
+    enabled: true
+    owner-email: Owner@Shop.Test
+    owner-password: test-owner-password
+    customer-email: customer@shop.test
+    customer-password: test-customer-password

@@ -3,9 +3,10 @@ COMPOSE ?= docker compose
 CORE    := $(COMPOSE) --profile core
 RUN     := $(CORE) run --rm --no-deps commerce-core
 SERVICE ?= commerce-core
-ROLE    ?= shop_owner
+ROLE    ?= owner
 
-.PHONY: help env up up-full down reset migrate seed logs test test-local token shell
+.PHONY: help env up up-full down reset migrate seed logs test test-local test-auth test-async token dev-token \
+        shell worker-status dlq-replay scenario-c
 
 help: ## Show available targets
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-12s %s\n", $$1, $$2}'
@@ -36,13 +37,32 @@ logs: ## Tail logs (SERVICE=commerce-core)
 
 test: env ## Run the commerce-core test suite against the Compose Postgres
 	$(CORE) up -d postgres
-	$(CORE) run --rm commerce-core pytest
+	$(CORE) run --rm -v $(CURDIR)/docs/contracts/events:/contracts:ro -e CONTRACTS_DIR=/contracts commerce-core pytest
 
-test-local: ## Run tests natively (needs Postgres on localhost; see services/commerce-core/README.md)
+test-local: ## Run commerce-core tests natively (needs Postgres on localhost; see services/commerce-core/README.md)
 	cd services/commerce-core && pytest
 
-token: ## Print a dev access token (ROLE=shop_owner|customer)
-	@$(RUN) python manage.py dev_token --role $(ROLE)
+test-auth: ## Run auth-service tests natively (Java 21, Postgres on localhost with an auth_test database)
+	cd services/auth-service && ./mvnw -B test
+
+test-async: ## Run outbox-publisher and worker tests natively (Postgres and RabbitMQ on localhost)
+	cd services/outbox-publisher && pytest
+	cd services/worker && pytest
+
+token: ## Sign in through auth-service and print an access token (ROLE=owner|customer)
+	@python3 scripts/login.py --role $(if $(filter shop_owner owner,$(ROLE)),owner,customer)
+
+dev-token: ## Print an HS256 dev token (only if JWT_DEV_HS256_SECRET is set)
+	@$(RUN) python manage.py dev_token --role $(if $(filter owner shop_owner,$(ROLE)),shop_owner,customer)
+
+worker-status: ## Queue depths, including retry and dead-letter queues
+	@$(CORE) exec worker python -m worker status
+
+dlq-replay: ## Replay dead-lettered messages (CONSUMER=order-email|low-stock)
+	$(CORE) exec worker python -m worker replay $(CONSUMER)
+
+scenario-c: ## Scenario C: broker outage loses no events (needs `make up seed`)
+	python3 tests/scenarios/scenario_c.py
 
 shell: ## Django shell
 	$(RUN) python manage.py shell

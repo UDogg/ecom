@@ -91,7 +91,7 @@ def release_stock(product_id, quantity):
         return cursor.fetchone()[0]
 
 
-def checkout(customer_id, idempotency_key, items, trace_ctx=None):
+def checkout(customer_id, idempotency_key, items, trace_ctx=None, customer_email=None):
     """Place an order. Returns (http_status, body, replayed)."""
     normalized = normalize_items(items)
     digest = request_hash(normalized)
@@ -133,6 +133,7 @@ def checkout(customer_id, idempotency_key, items, trace_ctx=None):
 
         order = Order.objects.create(
             customer_id=customer_id,
+            customer_email=customer_email,
             total_minor=sum(products[pid].price_minor * qty for pid, qty in normalized),
             currency=currencies.pop(),
         )
@@ -148,7 +149,8 @@ def checkout(customer_id, idempotency_key, items, trace_ctx=None):
         )
 
         body = order_body(order)
-        emit("order.placed", "order", order.id, {**body, "customer_id": str(customer_id)}, trace_ctx=trace_ctx)
+        emit("order.placed", "order", order.id,
+             {**body, "customer_id": str(customer_id), "customer_email": customer_email}, trace_ctx=trace_ctx)
         for pid, qty in normalized:
             emit("inventory.changed", "product", pid,
                  {"product_id": pid, "available_quantity": remaining[pid], "delta": -qty, "reason": "checkout"},

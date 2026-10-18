@@ -41,6 +41,72 @@ jobs:
       - run: python manage.py check
       - run: pytest
 
+  auth-service:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: ci-only
+          POSTGRES_DB: auth_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 3s --health-retries 20
+    defaults:
+      run:
+        working-directory: services/auth-service
+    env:
+      AUTH_TEST_DB_PASSWORD: ci-only
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+      - run: ./mvnw -B test
+
+  async:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: ci-only
+          POSTGRES_DB: shop
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 3s --health-retries 20
+      rabbitmq:
+        image: rabbitmq:3.13-alpine
+        env:
+          # guest may only connect from loopback, which service containers are not
+          RABBITMQ_DEFAULT_USER: ci
+          RABBITMQ_DEFAULT_PASS: ci-only
+        ports: ["5672:5672"]
+        options: >-
+          --health-cmd "rabbitmq-diagnostics -q ping"
+          --health-interval 10s --health-timeout 5s --health-retries 12
+    env:
+      POSTGRES_HOST: localhost
+      OUTBOX_PUBLISHER_DB_USER: postgres
+      OUTBOX_PUBLISHER_DB_PASSWORD: ci-only
+      WORKER_DB_USER: postgres
+      WORKER_DB_PASSWORD: ci-only
+      RABBITMQ_URL: amqp://ci:ci-only@localhost:5672/%2F
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r services/outbox-publisher/requirements-dev.txt -r services/worker/requirements-dev.txt
+      - run: pytest
+        working-directory: services/outbox-publisher
+      - run: pytest
+        working-directory: services/worker
+
   compose:
     runs-on: ubuntu-latest
     steps:

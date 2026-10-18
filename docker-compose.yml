@@ -13,7 +13,7 @@ x-commerce-env: &commerce-env
   DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:-localhost,127.0.0.1,commerce-core}
   PUBLIC_AUTH_ISSUER_URL: ${PUBLIC_AUTH_ISSUER_URL}
   PUBLIC_ASSET_BASE_URL: ${PUBLIC_ASSET_BASE_URL}
-  INTERNAL_AUTH_JWKS_URL: ${INTERNAL_AUTH_JWKS_URL:-}
+  INTERNAL_AUTH_JWKS_URL: ${INTERNAL_AUTH_JWKS_URL:-http://auth-service:8081/oauth2/jwks}
   JWT_DEV_HS256_SECRET: ${JWT_DEV_HS256_SECRET:-}
   RESERVATION_TTL_SECONDS: ${RESERVATION_TTL_SECONDS:-900}
   IDEMPOTENCY_RETENTION_HOURS: ${IDEMPOTENCY_RETENTION_HOURS:-24}
@@ -31,6 +31,8 @@ services:
       CATALOG_READER_DB_PASSWORD: ${CATALOG_READER_DB_PASSWORD}
       INTELLIGENCE_DB_PASSWORD: ${INTELLIGENCE_DB_PASSWORD}
       AUTH_DB_PASSWORD: ${AUTH_DB_PASSWORD}
+      OUTBOX_PUBLISHER_DB_PASSWORD: ${OUTBOX_PUBLISHER_DB_PASSWORD}
+      WORKER_DB_PASSWORD: ${WORKER_DB_PASSWORD}
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./db/init:/docker-entrypoint-initdb.d:ro
@@ -84,6 +86,125 @@ services:
       commerce-migrate: { condition: service_completed_successfully }
     networks: [data]
 
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    profiles: ["core", "full"]
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-shop}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
+    volumes:
+      - rabbitmq:/var/lib/rabbitmq
+    ports:
+      - "127.0.0.1:15672:15672"   # management UI, dev only
+    networks: [data]
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  mailpit:
+    image: axllent/mailpit:v1.21
+    profiles: ["core", "full"]
+    ports:
+      - "127.0.0.1:8025:8025"     # inbox UI
+    networks: [data]
+
+  auth-service:
+    build:
+      context: ./services/auth-service
+    profiles: ["core", "full"]
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: ${POSTGRES_DB:-shop}
+      AUTH_DB_USER: auth
+      AUTH_DB_PASSWORD: ${AUTH_DB_PASSWORD}
+      PUBLIC_AUTH_ISSUER_URL: ${PUBLIC_AUTH_ISSUER_URL}
+      OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-storefront}
+      OIDC_REDIRECT_URIS: ${OIDC_REDIRECT_URIS}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS}
+      ACCESS_TOKEN_TTL_SECONDS: ${ACCESS_TOKEN_TTL_SECONDS:-600}
+      AUTH_SEED_ENABLED: ${AUTH_SEED_ENABLED:-false}
+      SEED_OWNER_EMAIL: ${SEED_OWNER_EMAIL:-}
+      SEED_OWNER_PASSWORD: ${SEED_OWNER_PASSWORD:-}
+      SEED_CUSTOMER_EMAIL: ${SEED_CUSTOMER_EMAIL:-}
+      SEED_CUSTOMER_PASSWORD: ${SEED_CUSTOMER_PASSWORD:-}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    volumes:
+      - authkeys:/var/lib/auth
+    depends_on:
+      postgres: { condition: service_healthy }
+    ports: ["127.0.0.1:8081:8081"]
+    networks: [app, data]
+    deploy:
+      resources:
+        limits: { cpus: "1.0", memory: 768M }
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8081/readyz"]
+      interval: 10s
+      timeout: 3s
+      start_period: 30s
+      retries: 10
+
+  outbox-publisher:
+    build:
+      context: ./services/outbox-publisher
+    profiles: ["core", "full"]
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: ${POSTGRES_DB:-shop}
+      OUTBOX_PUBLISHER_DB_USER: outbox_publisher
+      OUTBOX_PUBLISHER_DB_PASSWORD: ${OUTBOX_PUBLISHER_DB_PASSWORD}
+      RABBITMQ_URL: ${RABBITMQ_URL}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    depends_on:
+      commerce-migrate: { condition: service_completed_successfully }
+      rabbitmq: { condition: service_healthy }
+    networks: [data]
+    deploy:
+      resources:
+        limits: { cpus: "0.5", memory: 256M }
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8091/readyz', timeout=2)"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+  worker:
+    build:
+      context: ./services/worker
+    profiles: ["core", "full"]
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: ${POSTGRES_DB:-shop}
+      WORKER_DB_USER: worker
+      WORKER_DB_PASSWORD: ${WORKER_DB_PASSWORD}
+      RABBITMQ_URL: ${RABBITMQ_URL}
+      SMTP_HOST: ${SMTP_HOST:-mailpit}
+      SMTP_PORT: ${SMTP_PORT:-1025}
+      MAIL_FROM: ${MAIL_FROM}
+      OWNER_ALERT_EMAIL: ${OWNER_ALERT_EMAIL}
+      PUBLIC_WEB_URL: ${PUBLIC_WEB_URL}
+      LOW_STOCK_THRESHOLD: ${LOW_STOCK_THRESHOLD:-5}
+      WORKER_RETRY_DELAYS_MS: ${WORKER_RETRY_DELAYS_MS:-5000,30000,120000}
+      WORKER_PREFETCH: ${WORKER_PREFETCH:-10}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    depends_on:
+      postgres: { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
+    networks: [data]
+    deploy:
+      resources:
+        limits: { cpus: "0.5", memory: 256M }
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8090/readyz', timeout=2)"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
 networks:
   edge: {}
   app: {}
@@ -91,3 +212,5 @@ networks:
 
 volumes:
   pgdata: {}
+  rabbitmq: {}
+  authkeys: {}
