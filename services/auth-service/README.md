@@ -1,6 +1,6 @@
 # auth-service
 
-Spring Boot 3.5 + Spring Authorization Server. It is the identity provider:
+Spring Boot 4.1 + Spring Security 7 (its OAuth 2.1 Authorization Server). It is the identity provider:
 sign-in, OIDC discovery, JWT issuance, JWKS, and customer registration. It
 owns the `identity` schema. Design decisions: `docs/adr/011-auth-service-token-design.md`
 and `docs/adr/012-bff-and-gated-core.md`.

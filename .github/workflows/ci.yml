@@ -2,10 +2,18 @@ name: CI
 
 on:
   push:
+    branches-ignore: ["dependabot/**"]   # their pull_request run is the one that counts
   pull_request:
+  schedule:
+    - cron: "17 5 * * 1"   # weekly, so a deprecation or advisory shows up even when nothing was pushed
+  workflow_dispatch:
 
 permissions:
   contents: read
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   commerce-core:
@@ -29,10 +37,10 @@ jobs:
       COMMERCE_DB_PASSWORD: ci-only
       JWT_DEV_HS256_SECRET: ci-only-secret-that-is-long-enough-for-hs256
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
-          python-version: "3.12"
+          python-version: "3.14"
           cache: pip
           cache-dependency-path: services/commerce-core/requirements-dev.txt
       - run: pip install -r requirements-dev.txt
@@ -59,8 +67,8 @@ jobs:
     env:
       AUTH_TEST_DB_PASSWORD: ci-only
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: "21"
@@ -80,13 +88,14 @@ jobs:
           --health-cmd "pg_isready -U postgres"
           --health-interval 5s --health-timeout 3s --health-retries 20
       rabbitmq:
-        image: rabbitmq:3.13-alpine
+        image: rabbitmq:4.3-alpine
         env:
           # guest may only connect from loopback, which service containers are not
           RABBITMQ_DEFAULT_USER: ci
           RABBITMQ_DEFAULT_PASS: ci-only
         ports: ["5672:5672"]
         options: >-
+          --user rabbitmq
           --health-cmd "rabbitmq-diagnostics -q ping"
           --health-interval 10s --health-timeout 5s --health-retries 12
     env:
@@ -97,10 +106,10 @@ jobs:
       WORKER_DB_PASSWORD: ci-only
       RABBITMQ_URL: amqp://ci:ci-only@localhost:5672/%2F
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
-          python-version: "3.12"
+          python-version: "3.14"
       - run: pip install -r services/outbox-publisher/requirements-dev.txt -r services/worker/requirements-dev.txt
       - run: pytest
         working-directory: services/outbox-publisher
@@ -122,30 +131,32 @@ jobs:
     env:
       CATALOG_TEST_DATABASE_URL: postgres://postgres:ci-only@localhost:5432/shop
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
-          go-version: "1.24"
-          cache-dependency-path: services/catalog-reader/go.sum
+          go-version-file: services/catalog-reader/go.mod
+          cache-dependency-path: |
+            services/catalog-reader/go.sum
+            tools/go/go.sum
+      - name: Pinned tools (tools/go/go.mod, kept current by Dependabot)
+        working-directory: tools/go
+        run: go build -o "$RUNNER_TEMP/bin/" honnef.co/go/tools/cmd/staticcheck golang.org/x/vuln/cmd/govulncheck
       - name: The shared jwt package is identical in both services
         run: diff -u services/bff/internal/jwt/jwt.go services/catalog-reader/internal/jwt/jwt.go
-      - name: BFF (standard library only)
-        working-directory: services/bff
+      - name: Format, vet, deprecated APIs (SA1019), tests, known vulnerabilities
         run: |
-          test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
-          go vet ./... && go test -race ./...
-      - name: catalog-reader
-        working-directory: services/catalog-reader
-        run: |
-          test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
-          go vet ./... && go test -race ./...
-      - name: Known vulnerabilities
-        run: |
-          go install golang.org/x/vuln/cmd/govulncheck@latest
-          (cd services/bff && govulncheck ./...)
-          (cd services/catalog-reader && govulncheck ./...)
+          for m in services/bff services/catalog-reader bench/loadgen; do
+            echo "::group::$m"
+            (cd $m
+             test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
+             go vet ./...
+             "$RUNNER_TEMP/bin/staticcheck" -checks SA1019 ./...
+             go test -race ./...
+             "$RUNNER_TEMP/bin/govulncheck" ./...) || exit 1
+            echo "::endgroup::"
+          done
 
-  intelligence:
+  fastapi:
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -157,23 +168,24 @@ jobs:
         options: >-
           --health-cmd "pg_isready -U postgres"
           --health-interval 5s --health-timeout 3s --health-retries 20
-    defaults:
-      run:
-        working-directory: services/intelligence
     env:
       INTEL_TEST_DATABASE_URL: postgresql://postgres:ci-only@localhost:5432/shop
+      PAYMENTS_TEST_DATABASE_URL: postgresql://postgres:ci-only@localhost:5432/shop
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
-          python-version: "3.12"
-      - run: pip install -r requirements-dev.txt
+          python-version: "3.14"
+      - run: pip install -r services/intelligence/requirements-dev.txt -r services/payments-sim/requirements-dev.txt
       - run: pytest
+        working-directory: services/intelligence
+      - run: pytest
+        working-directory: services/payments-sim
 
   compose:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: bash -n run.sh scripts/breakglass.sh
       - run: python3 scripts/devsecrets.py ensure || test $? = 3   # fresh .env with random secrets, as ./run.sh does
       - run: docker compose --profile core --profile ops config --quiet

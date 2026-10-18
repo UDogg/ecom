@@ -20,6 +20,8 @@ x-commerce-env: &commerce-env
   PUBLIC_ASSET_BASE_URL: ${PUBLIC_ASSET_BASE_URL}
   INTERNAL_AUTH_JWKS_URL: ${INTERNAL_AUTH_JWKS_URL:-http://auth-service:8081/oauth2/jwks}
   JWT_AUDIENCE: ${OIDC_CLIENT_ID:-bff},core   # core: SYSTEM and break-glass tokens
+  COMMERCE_SERVICE_CLIENT_ID: ${COMMERCE_SERVICE_CLIENT_ID:-}      # its own service account, to call payments-sim
+  COMMERCE_SERVICE_CLIENT_SECRET: ${COMMERCE_SERVICE_CLIENT_SECRET:-}
   GATEWAY_SECRET: ${GATEWAY_SECRET}
   JWT_DEV_HS256_SECRET: ${JWT_DEV_HS256_SECRET:-}
   RESERVATION_TTL_SECONDS: ${RESERVATION_TTL_SECONDS:-900}
@@ -40,6 +42,7 @@ services:
       AUTH_DB_PASSWORD: ${AUTH_DB_PASSWORD}
       OUTBOX_PUBLISHER_DB_PASSWORD: ${OUTBOX_PUBLISHER_DB_PASSWORD}
       WORKER_DB_PASSWORD: ${WORKER_DB_PASSWORD}
+      PAYMENTS_DB_PASSWORD: ${PAYMENTS_DB_PASSWORD}
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./db/init:/docker-entrypoint-initdb.d:ro
@@ -87,17 +90,22 @@ services:
     image: babel-bazaar-commerce-core-prod
     profiles: ["core", "full"]
     environment: *commerce-env
-    command: ["sh", "-c", "while true; do python manage.py expire_reservations; sleep 30; done"]
+    # Expire unpaid orders, reconcile payments, purge old idempotency keys.
+    command: ["python", "manage.py", "maintain", "--loop", "10"]
     depends_on:
       commerce-migrate: { condition: service_completed_successfully }
     networks: [data]
 
   rabbitmq:
-    image: rabbitmq:3.13-management-alpine
+    image: rabbitmq:4.3-management-alpine
+    hostname: rabbitmq   # stable node name: the data directory survives re-creation
+    user: rabbitmq
     profiles: ["core", "full"]
     environment:
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-shop}
       RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
+      # Deprecated since 4.x: the console reads live state instead (also saves memory and CPU).
+      RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS: -rabbitmq_management_agent disable_metrics_collector true
     volumes:
       - rabbitmq:/var/lib/rabbitmq
     ports:
@@ -110,7 +118,7 @@ services:
       retries: 12
 
   mailpit:
-    image: axllent/mailpit:v1.21
+    image: axllent/mailpit:v1.31
     profiles: ["core", "full"]
     ports:
       - "127.0.0.1:8025:8025"     # inbox UI, developer tool
@@ -231,6 +239,7 @@ services:
       INTERNAL_CATALOG_URL: http://catalog-reader:8082
       INTERNAL_INTELLIGENCE_URL: http://intelligence:8001
       RATE_AUTH_PER_MINUTE: ${RATE_AUTH_PER_MINUTE:-10}
+      RATE_DEFAULT_PER_MINUTE: ${RATE_DEFAULT_PER_MINUTE:-300}   # ./run.sh bench raises it so the limiter is not what gets measured
     depends_on:
       auth-service: { condition: service_healthy }
       commerce-core: { condition: service_healthy }
@@ -303,11 +312,36 @@ services:
       timeout: 3s
       retries: 10
 
+  payments-sim:
+    build:
+      context: ./services/payments-sim
+    profiles: ["core", "full"]
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_DB: ${POSTGRES_DB:-shop}
+      PAYMENTS_DB_PASSWORD: ${PAYMENTS_DB_PASSWORD}
+      PAYMENTS_SERVICE_CLIENT_ID: ${PAYMENTS_SERVICE_CLIENT_ID:-}      # its own service account, for webhooks
+      PAYMENTS_SERVICE_CLIENT_SECRET: ${PAYMENTS_SERVICE_CLIENT_SECRET:-}
+      PUBLIC_AUTH_ISSUER_URL: ${PUBLIC_AUTH_ISSUER_URL}
+      GATEWAY_SECRET: ${GATEWAY_SECRET}
+      CHAOS_ENABLED: ${CHAOS_ENABLED:-false}
+    depends_on:
+      postgres: { condition: service_healthy }
+    networks: [app, data]
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8003/healthz', timeout=2)"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
   # The operator's way in when the BFF is down (docs/break-glass.md): Ensuretech's
   # "VPN to the private network", as a throwaway container on the app network.
   # It holds no secrets of its own; scripts/breakglass.sh passes them per run.
   opsbox:
-    image: python:3.12-slim
+    image: python:3.14-slim
     profiles: ["ops"]
     entrypoint: ["python", "/scripts/breakglass.py"]
     volumes:

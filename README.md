@@ -254,7 +254,7 @@ The full stack is heavy. Profiles let you run only what you need.
 - Docker Desktop (or Docker Engine) with Compose v2.
 - 8 GB RAM free for the `full` profile; 4 GB is enough for `core`.
 - `make` (optional convenience wrapper).
-- Optional for running services outside containers: Java 21, Python 3.12, Go 1.22, Node.js 20.
+- Optional for running services outside containers: Java 21, Python 3.14, Go 1.27, Node.js 24.
 
 ### Run it
 
@@ -1319,6 +1319,7 @@ Begin with a small but realistic workflow, **not** a large collection of service
 - [ ] Failure-injection suite and service-permission matrix
 - [ ] Recovery-time measurements
 - [x] Privileged access like Ensuretech's: service accounts (SYSTEM tokens) and audited break-glass ([docs/break-glass.md](docs/break-glass.md))
+- [x] Dependabot for every ecosystem, CI that fails on deprecated APIs ([docs/dependency-updates.md](docs/dependency-updates.md))
 - [ ] Security findings and remediation plan
 - [ ] Cross-service observability dashboards
 

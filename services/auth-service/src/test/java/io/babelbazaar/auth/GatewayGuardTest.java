@@ -15,12 +15,12 @@ import java.time.Instant;
 import java.util.HexFormat;
 import java.util.Set;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.ActiveProfiles;
@@ -51,14 +51,14 @@ class GatewayGuardTest {
     void matchesTheSharedCrossLanguageVectors() throws Exception {
         Assumptions.assumeTrue(Files.exists(VECTORS), "shared vectors not available");
         JsonNode data = new ObjectMapper().readTree(VECTORS.toFile());
-        byte[] secret = data.get("secret").asText().getBytes(StandardCharsets.UTF_8);
+        byte[] secret = data.get("secret").asString().getBytes(StandardCharsets.UTF_8);
         for (JsonNode v : data.get("vectors")) {
-            String[] a = {v.get("timestamp").asText(), v.get("nonce").asText(), v.get("method").asText(),
-                    v.get("path").asText(), v.get("query").asText(), v.get("authorization").asText()};
-            assertThat(GatewayGuardFilter.canonical(a[0], a[1], a[2], a[3], a[4], a[5])).as(v.get("name").asText())
-                    .isEqualTo(v.get("canonical").asText());
-            assertThat(GatewayGuardFilter.sign(secret, a[0], a[1], a[2], a[3], a[4], a[5])).as(v.get("name").asText())
-                    .isEqualTo(v.get("signature").asText());
+            String[] a = {v.get("timestamp").asString(), v.get("nonce").asString(), v.get("method").asString(),
+                    v.get("path").asString(), v.get("query").asString(), v.get("authorization").asString()};
+            assertThat(GatewayGuardFilter.canonical(a[0], a[1], a[2], a[3], a[4], a[5])).as(v.get("name").asString())
+                    .isEqualTo(v.get("canonical").asString());
+            assertThat(GatewayGuardFilter.sign(secret, a[0], a[1], a[2], a[3], a[4], a[5])).as(v.get("name").asString())
+                    .isEqualTo(v.get("signature").asString());
         }
     }
 
@@ -105,7 +105,7 @@ class GatewayGuardTest {
                         .param("grant_type", "client_credentials").param("client_id", PrivilegedAccessTest.CLIENT)
                         .param("client_secret", PrivilegedAccessTest.SECRET))
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
-        String system = new ObjectMapper().readTree(body).get("access_token").asText();
+        String system = new ObjectMapper().readTree(body).get("access_token").asString();
         mvc.perform(get("/api/auth/ops/break-glass-grants").header("Authorization", "Bearer " + system))
                 .andExpect(status().isOk());
     }

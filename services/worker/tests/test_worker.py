@@ -247,3 +247,15 @@ def test_consumer_fixtures_match_the_contracts():
                              (inventory_changed(3, -1), "inventory.changed.v1.schema.json")]:
         jsonschema.validate(env, load("envelope.v1.schema.json"), format_checker=checker)
         jsonschema.validate(env["data"], load(data_schema), format_checker=checker)
+
+
+def test_payment_receipt(cfg, connection):
+    mailer = FakeMailer()
+    worker = make_worker(cfg, connection, mailer)
+    env = order_placed()
+    env.update(type="payment.captured", data={"order_id": str(uuid.uuid4()), "amount_minor": 2599, "currency": "USD",
+                                              "customer_email": "customer@shop.local"})
+    publish(worker, env)
+    worker.drain(idle_seconds=0.3)
+    [mail] = mailer.sent
+    assert mail["subject"].startswith("Payment received") and "25.99 USD" in mail["body"]

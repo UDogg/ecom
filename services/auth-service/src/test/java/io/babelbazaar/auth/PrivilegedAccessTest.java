@@ -10,11 +10,11 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import java.time.Instant;
 import java.util.Map;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.simple.JdbcClient;
@@ -43,7 +43,7 @@ class PrivilegedAccessTest {
         String body = mvc.perform(post("/api/auth/service-token").contentType(MediaType.APPLICATION_FORM_URLENCODED)
                         .param("grant_type", "client_credentials").param("client_id", clientId).param("client_secret", secret))
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
-        return json.readTree(body).get("access_token").asText();
+        return json.readTree(body).get("access_token").asString();
     }
 
     JsonNode breakGlass(String bearer, Map<String, Object> body, int expectStatus) throws Exception {
@@ -94,7 +94,7 @@ class PrivilegedAccessTest {
     @Test
     void breakGlassActsAsExactlyOneUserForAShortTime() throws Exception {
         JsonNode out = breakGlass(systemToken(CLIENT, SECRET), grantRequest("BFF down, finishing a customer's refund"), 200);
-        Jwt jwt = decoder.decode(out.get("access_token").asText());
+        Jwt jwt = decoder.decode(out.get("access_token").asString());
 
         assertThat(jwt.getSubject()).isEqualTo(SeedAccounts.CUSTOMER_ID.toString());
         assertThat(jwt.getClaimAsStringList("roles")).containsExactly("customer"); // the user's own, never SYSTEM
@@ -105,7 +105,7 @@ class PrivilegedAccessTest {
         assertThat(jwt.getExpiresAt()).isBetween(Instant.now().plusSeconds(14 * 60), Instant.now().plusSeconds(15 * 60 + 5));
         assertThat(out.has("refresh_token")).isFalse();
         assertThat(lastOutcome()).isEqualTo("GRANTED");
-        assertThat(jdbc.sql("SELECT jti FROM break_glass_grant WHERE id = ?::uuid").param(out.get("grant_id").asText())
+        assertThat(jdbc.sql("SELECT jti FROM break_glass_grant WHERE id = ?::uuid").param(out.get("grant_id").asString())
                 .query(String.class).single()).isEqualTo(jwt.getId());
     }
 

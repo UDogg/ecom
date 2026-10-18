@@ -7,12 +7,12 @@ from rest_framework.views import APIView
 from catalog.models import Inventory, Product
 from common.errors import NotFound, problem
 from common.http import paginate
-from common.permissions import IsCustomer, IsShopOwner
+from common.permissions import IsCustomer, IsService, IsShopOwner, IsSystem
 from outbox.models import OutboxEvent
 from outbox.service import trace_ctx_from
 
-from . import services
-from .models import Cart, CartItem, Order
+from . import payments, services
+from .models import Cart, CartItem, Order, PaymentAttempt
 
 MAX_LINES = 50
 MAX_QUANTITY = 1000
@@ -149,3 +149,50 @@ class AdminDashboard(APIView):
                 "outbox_oldest_pending_at": oldest.created_at.isoformat().replace("+00:00", "Z") if oldest else None,
             },
         })
+
+
+class PaySerializer(serializers.Serializer):
+    source = serializers.ChoiceField(choices=payments.SOURCES)
+
+
+class PayView(APIView):
+    """Pay for one of your own orders. 201 settled (paid or declined), 202 still being processed."""
+
+    permission_classes = [IsCustomer]
+
+    def post(self, request, order_id):
+        data = PaySerializer(data=request.data)
+        data.is_valid(raise_exception=True)
+        attempt = payments.start(order_id, request.user.id, data.validated_data["source"])
+        order = _orders_qs().get(id=attempt.order_id)
+        code = 202 if attempt.status == PaymentAttempt.Status.PENDING else 201
+        return Response(services.order_body(order), status=code)
+
+
+class PaymentWebhook(APIView):
+    """payments-sim's webhooks. Only its own service account, nothing else (a narrow machine-to-machine door)."""
+
+    permission_classes = [IsService("payments")]
+
+    def post(self, request):
+        result = payments.handle_webhook(request.data)
+        if result == "malformed":
+            return Response({"result": result}, status=400)
+        return Response({"result": result})  # 2xx for duplicates and unknown charges too: retrying would not help
+
+
+class AdminRefund(APIView):
+    permission_classes = [IsShopOwner]
+
+    def post(self, request, order_id):
+        order = payments.refund(order_id)
+        return Response({**services.order_body(order), "customer_id": str(order.customer_id)})
+
+
+class OpsReconcilePayments(APIView):
+    """Run payment reconciliation now (commerce-expirer does it every 30 s)."""
+
+    permission_classes = [IsSystem]
+
+    def post(self, request):
+        return Response(payments.reconcile())

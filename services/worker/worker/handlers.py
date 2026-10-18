@@ -63,6 +63,24 @@ def order_confirmation(envelope, ctx):
     return "sent"
 
 
+def payment_receipt(envelope, ctx):
+    data = envelope["data"]
+    require(data, "order_id", "amount_minor", "currency")
+    to = data.get("customer_email")
+    if not to:
+        return "skipped: no customer email"
+    short = data["order_id"][:8]
+    body = "\n".join([
+        "Payment received, thank you!",
+        "",
+        f"We have charged {money(data['amount_minor'], data['currency'])} for order {short}. It is being prepared now.",
+        "",
+        f"Track it: {ctx.config.public_web_url}/orders/{data['order_id']}",
+    ])
+    ctx.mailer.send(to, f"Payment received for order {short}", body, message_id=f"payment-captured-{envelope['id']}")
+    return "sent"
+
+
 def low_stock_alert(envelope, ctx):
     data = envelope["data"]
     require(data, "product_id", "available_quantity", "delta")
@@ -88,4 +106,5 @@ class Consumer:
 CONSUMERS = {
     "order-email": Consumer("order-email", ("order.placed.v1",), order_confirmation),
     "low-stock": Consumer("low-stock", ("inventory.changed.v1",), low_stock_alert),
+    "payment-email": Consumer("payment-email", ("payment.captured.v1",), payment_receipt),
 }

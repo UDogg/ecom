@@ -14,6 +14,9 @@ urlpatterns = [
     # Operations: SYSTEM tokens only (docs/break-glass.md)
     path("api/commerce/ops/status", ops.OpsStatus.as_view()),
     path("api/commerce/ops/reservations/expire", ops.OpsExpireReservations.as_view()),
+    path("api/commerce/ops/payments/reconcile", orders.OpsReconcilePayments.as_view()),
+    # payments-sim's webhooks: its service account only
+    path("api/commerce/payments/webhook", orders.PaymentWebhook.as_view()),
 
     # Shop owner admin API
     path(f"{admin}/products", catalog.AdminProductList.as_view()),
@@ -22,6 +25,7 @@ urlpatterns = [
     path(f"{admin}/inventory/<uuid:product_id>/adjust", catalog.AdminInventoryAdjust.as_view()),
     path(f"{admin}/inventory/<uuid:product_id>/adjustments", catalog.AdminInventoryHistory.as_view()),
     path(f"{admin}/orders", orders.AdminOrderList.as_view()),
+    path(f"{admin}/orders/<uuid:order_id>/refund", orders.AdminRefund.as_view()),
     path(f"{admin}/dashboard", orders.AdminDashboard.as_view()),
 
     # Customer commerce API
@@ -29,6 +33,7 @@ urlpatterns = [
     path("api/commerce/checkout", orders.CheckoutView.as_view()),
     path("api/commerce/orders", orders.OrderList.as_view()),
     path("api/commerce/orders/<uuid:order_id>", orders.OrderDetail.as_view()),
+    path("api/commerce/orders/<uuid:order_id>/pay", orders.PayView.as_view()),
 
     # Public catalog: the database-backed path (baseline, and the fallback
     # contract for catalog-reader).

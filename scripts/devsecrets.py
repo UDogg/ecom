@@ -29,7 +29,7 @@ ENV, EXAMPLE, PRIVATE = ROOT / ".env", ROOT / ".env.example", ROOT / ".env.priva
 SECRETS = {
     "POSTGRES_SUPERUSER_PASSWORD": 24, "COMMERCE_DB_PASSWORD": 24, "CATALOG_READER_DB_PASSWORD": 24,
     "INTELLIGENCE_DB_PASSWORD": 24, "AUTH_DB_PASSWORD": 24, "OUTBOX_PUBLISHER_DB_PASSWORD": 24,
-    "WORKER_DB_PASSWORD": 24, "RABBITMQ_PASSWORD": 24, "S3_SECRET_KEY": 24, "DJANGO_SECRET_KEY": 48,
+    "WORKER_DB_PASSWORD": 24, "PAYMENTS_DB_PASSWORD": 24, "RABBITMQ_PASSWORD": 24, "S3_SECRET_KEY": 24, "DJANGO_SECRET_KEY": 48,
     "OIDC_CLIENT_SECRET": 32, "GATEWAY_SECRET": 32, "SEED_OWNER_PASSWORD": 12, "SEED_CUSTOMER_PASSWORD": 12,
 }
 LINE = re.compile(r"^([A-Z][A-Z0-9_]*)=(.*)$")
@@ -102,8 +102,17 @@ def ensure():
                    "BREAK_GLASS_PASSWORD": token(18)}
         write_private(private)
         print("generated the `ops` service account and the break-glass password (in .env.private)")
-    wanted = {"SERVICE_ACCOUNTS": f"ops={private['OPS_CLIENT_ID']}:{sha256(private['OPS_CLIENT_SECRET'])}",
+    # Machine accounts: the services present these secrets themselves, so they live in .env.
+    machines = {}
+    for name in ("commerce", "payments"):
+        cid, sec = f"{name.upper()}_SERVICE_CLIENT_ID", f"{name.upper()}_SERVICE_CLIENT_SECRET"
+        machines[name] = (env.get(cid) or f"svc_{name}_{secrets.token_hex(6)}", env.get(sec) or token(48))
+    accounts = [f"ops={private['OPS_CLIENT_ID']}:{sha256(private['OPS_CLIENT_SECRET'])}"]
+    accounts += [f"{name}={cid}:{sha256(sec)}" for name, (cid, sec) in machines.items()]
+    wanted = {"SERVICE_ACCOUNTS": ",".join(accounts),
               "BREAK_GLASS_PASSWORD_SHA256": sha256(private["BREAK_GLASS_PASSWORD"])}
+    for name, (cid, sec) in machines.items():
+        wanted[f"{name.upper()}_SERVICE_CLIENT_ID"], wanted[f"{name.upper()}_SERVICE_CLIENT_SECRET"] = cid, sec
     stale = {k: v for k, v in wanted.items() if env.get(k) != v}
     if stale:
         set_values(ENV, stale)

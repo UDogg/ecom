@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://shop.local/contracts/events/payment.captured.v1.schema.json",
+  "title": "payment.captured v1 data",
+  "type": "object",
+  "required": ["order_id", "attempt_id", "amount_minor", "currency", "customer_id"],
+  "properties": {
+    "order_id": {"type": "string", "format": "uuid"},
+    "attempt_id": {"type": "string", "format": "uuid"},
+    "amount_minor": {"type": "integer", "minimum": 1},
+    "currency": {"type": "string", "pattern": "^[A-Z]{3}$"},
+    "customer_id": {"type": "string", "format": "uuid"},
+    "customer_email": {"type": ["string", "null"]}
+  }
+}

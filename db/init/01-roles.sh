@@ -10,6 +10,7 @@ psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" \
   -v auth_pw="$AUTH_DB_PASSWORD" \
   -v publisher_pw="$OUTBOX_PUBLISHER_DB_PASSWORD" \
   -v worker_pw="$WORKER_DB_PASSWORD" \
+  -v payments_pw="$PAYMENTS_DB_PASSWORD" \
   -v db="$POSTGRES_DB" <<'SQL'
 -- commerce-core owns the commerce schema. CREATEDB is only so the test
 -- suite can create its throwaway test database in local development.
@@ -28,6 +29,10 @@ CREATE ROLE outbox_publisher LOGIN PASSWORD :'publisher_pw';
 CREATE ROLE worker LOGIN PASSWORD :'worker_pw';
 CREATE SCHEMA worker AUTHORIZATION worker;
 
+-- payments-sim: the simulated provider's own ledger; it sees nothing of the shop.
+CREATE ROLE payments_sim LOGIN PASSWORD :'payments_pw';
+CREATE SCHEMA payments AUTHORIZATION payments_sim;
+
 -- intelligence: analytics views only (granted when they exist).
 CREATE ROLE intelligence LOGIN PASSWORD :'intel_pw';
 
@@ -38,5 +43,5 @@ CREATE SCHEMA identity AUTHORIZATION auth;
 -- Nobody gets implicit access to public.
 REVOKE CREATE ON SCHEMA public FROM PUBLIC;
 REVOKE ALL ON DATABASE :"db" FROM PUBLIC;
-GRANT CONNECT ON DATABASE :"db" TO commerce, catalog_reader, outbox_publisher, worker, intelligence, auth;
+GRANT CONNECT ON DATABASE :"db" TO commerce, catalog_reader, outbox_publisher, worker, intelligence, auth, payments_sim;
 SQL

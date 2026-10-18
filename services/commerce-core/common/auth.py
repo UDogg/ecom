@@ -156,7 +156,7 @@ def principal_from_claims(claims):
     if sub.startswith("svc:"):
         if SYSTEM not in roles:
             raise ValueError("service subject without the system role")
-        return Principal(id=None, roles=frozenset({SYSTEM}), service=str(claims.get("service", sub)))
+        return Principal(id=None, roles=frozenset({SYSTEM}), service=str(claims.get("service") or sub))
     return Principal(id=uuid.UUID(sub), roles=roles, email=email if isinstance(email, str) else None,
                      break_glass_by=str(claims.get("bg_by")) if claims.get("break_glass") is True else None)
 

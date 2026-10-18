@@ -23,3 +23,20 @@ class IsSystem(BasePermission):
     def has_permission(self, request, view):
         user = request.user
         return bool(user and user.has_role(SYSTEM) and user.id is None)
+
+
+class IsService:
+    """One named service account (SYSTEM token), for a narrow machine-to-machine endpoint."""
+
+    def __init__(self, name):
+        self.name = name
+
+    def __call__(self):  # DRF instantiates permission classes; this lets IsService("payments") be listed directly
+        return self
+
+    def has_permission(self, request, view):
+        user = request.user
+        return bool(user and user.has_role(SYSTEM) and user.id is None and user.service == self.name)
+
+    def has_object_permission(self, request, view, obj):
+        return self.has_permission(request, view)

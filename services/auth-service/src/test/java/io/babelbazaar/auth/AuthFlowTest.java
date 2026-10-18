@@ -17,13 +17,14 @@ import java.util.Base64;
 import java.util.List;
 import java.util.UUID;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
+import org.springframework.security.core.authority.FactorGrantedAuthority;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.test.context.ActiveProfiles;
@@ -69,10 +70,15 @@ class AuthFlowTest {
         return get(UriComponentsBuilder.fromPath("/oauth2/authorize").queryParams(params).encode().build().toUri());
     }
 
+    /** A session that signed in with a password, as the login form leaves it (OIDC needs the sign-in time). */
+    static org.springframework.test.web.servlet.request.RequestPostProcessor signedIn(String email) {
+        return user(email).authorities(FactorGrantedAuthority.fromAuthority(FactorGrantedAuthority.PASSWORD_AUTHORITY));
+    }
+
     /** Signs in as `email` (already authenticated) and returns the decoded access token. */
     Jwt accessTokenFor(String email) throws Exception {
         String verifier = UUID.randomUUID() + "-" + UUID.randomUUID();
-        String location = mvc.perform(authorize(authorizeParams(verifier)).with(user(email)))
+        String location = mvc.perform(authorize(authorizeParams(verifier)).with(signedIn(email)))
                 .andExpect(status().is3xxRedirection())
                 .andReturn().getResponse().getRedirectedUrl();
         assertThat(location).startsWith(REDIRECT);
@@ -90,7 +96,7 @@ class AuthFlowTest {
         JsonNode tokens = json.readTree(body);
         assertThat(tokens.has("id_token")).isTrue();
         lastTokens = tokens;
-        return jwtDecoder.decode(tokens.get("access_token").asText());
+        return jwtDecoder.decode(tokens.get("access_token").asString());
     }
 
     JsonNode lastTokens;
@@ -98,7 +104,7 @@ class AuthFlowTest {
     @Test
     void tokenEndpointRequiresTheBffClientSecret() throws Exception {
         String verifier = UUID.randomUUID() + "-" + UUID.randomUUID();
-        String location = mvc.perform(authorize(authorizeParams(verifier)).with(user("customer@shop.test")))
+        String location = mvc.perform(authorize(authorizeParams(verifier)).with(signedIn("customer@shop.test")))
                 .andReturn().getResponse().getRedirectedUrl();
         String code = UriComponentsBuilder.fromUriString(location).build().getQueryParams().getFirst("code");
         mvc.perform(post("/oauth2/token").contentType(MediaType.APPLICATION_FORM_URLENCODED)
@@ -111,7 +117,7 @@ class AuthFlowTest {
     @Test
     void refreshTokensRotateAndCannotBeReused() throws Exception {
         accessTokenFor("customer@shop.test");
-        String refresh = lastTokens.get("refresh_token").asText();
+        String refresh = lastTokens.get("refresh_token").asString();
         var refreshRequest = (java.util.function.Supplier<org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder>)
                 () -> post("/oauth2/token").contentType(MediaType.APPLICATION_FORM_URLENCODED)
                         .with(httpBasic("bff", CLIENT_SECRET))
@@ -119,8 +125,8 @@ class AuthFlowTest {
 
         String body = mvc.perform(refreshRequest.get()).andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
         JsonNode rotated = json.readTree(body);
-        assertThat(rotated.get("refresh_token").asText()).isNotEqualTo(refresh);
-        assertThat(jwtDecoder.decode(rotated.get("access_token").asText()).getClaimAsStringList("roles"))
+        assertThat(rotated.get("refresh_token").asString()).isNotEqualTo(refresh);
+        assertThat(jwtDecoder.decode(rotated.get("access_token").asString()).getClaimAsStringList("roles"))
                 .containsExactly("customer");
 
         mvc.perform(refreshRequest.get()).andExpect(status().isBadRequest()); // the old one is spent
@@ -168,7 +174,7 @@ class AuthFlowTest {
     void codeCanOnlyBeRedeemedWithTheRightVerifierAndOnlyOnce() throws Exception {
         String verifier = UUID.randomUUID() + "-" + UUID.randomUUID();
         String location = mvc.perform(authorize(authorizeParams(verifier))
-                        .with(user("customer@shop.test")))
+                        .with(signedIn("customer@shop.test")))
                 .andReturn().getResponse().getRedirectedUrl();
         String code = UriComponentsBuilder.fromUriString(location).build().getQueryParams().getFirst("code");
 
@@ -186,7 +192,7 @@ class AuthFlowTest {
     @Test
     void authorizeWithoutPkceIsRefused() throws Exception {
         String location = mvc.perform(authorize(authorizeParams(null))
-                        .with(user("customer@shop.test")))
+                        .with(signedIn("customer@shop.test")))
                 .andExpect(status().is3xxRedirection())
                 .andReturn().getResponse().getRedirectedUrl();
         assertThat(location).startsWith(REDIRECT).contains("error=invalid_request");
@@ -196,7 +202,7 @@ class AuthFlowTest {
     void unknownRedirectUriIsNeverUsed() throws Exception {
         MultiValueMap<String, String> params = authorizeParams("v".repeat(50));
         params.set("redirect_uri", "https://evil.example/steal");
-        mvc.perform(authorize(params).with(user("customer@shop.test")))
+        mvc.perform(authorize(params).with(signedIn("customer@shop.test")))
                 .andExpect(status().isBadRequest());
     }
 
@@ -204,7 +210,7 @@ class AuthFlowTest {
     void anonymousBrowserIsSentToTheLoginForm() throws Exception {
         mvc.perform(authorize(authorizeParams("v".repeat(50))).accept(MediaType.TEXT_HTML))
                 .andExpect(status().is3xxRedirection())
-                .andExpect(redirectedUrl("http://localhost/login"));
+                .andExpect(redirectedUrl("/login"));
     }
 
     @Test

@@ -42,7 +42,10 @@ def request_hash(normalized):
 
 
 def order_body(order):
+    from .payments import payment_summary
+
     return {
+        "payment": payment_summary(order),
         "id": str(order.id),
         "status": order.status,
         "total_minor": order.total_minor,
@@ -186,18 +189,22 @@ def expire_reservations(now=None, batch_size=100):
     now = now or timezone.now()
     expired = 0
     with transaction.atomic():
+        holding = [Order.Status.PENDING_PAYMENT, Order.Status.PAYMENT_FAILED]
         due_ids = list(
-            Order.objects.filter(status=Order.Status.PENDING_PAYMENT,
+            Order.objects.filter(status__in=holding,
                                  reservations__released_at__isnull=True,
                                  reservations__expires_at__lte=now)
             .values_list("id", flat=True).distinct()[:batch_size]
         )
         # The status filter is re-checked under the lock, so an order paid in
-        # the meantime is left alone.
-        locked = Order.objects.select_for_update(skip_locked=True).filter(
-            id__in=due_ids, status=Order.Status.PENDING_PAYMENT)
+        # the meantime is left alone. An order whose payment is still in flight
+        # (outcome unknown) gets a grace period for reconciliation first.
+        locked = (Order.objects.select_for_update(skip_locked=True).filter(id__in=due_ids, status__in=holding)
+                  .exclude(payment_attempts__status="pending",
+                           payment_attempts__created_at__gt=now - timedelta(minutes=5)))
         for order in list(locked):
-            state.transition(order, Order.Status.EXPIRED)
+            state.transition(order, Order.Status.EXPIRED if order.status == Order.Status.PENDING_PAYMENT
+                             else Order.Status.CANCELLED)
             _release_reservations(order, reason="reservation expired")
             emit("reservation.expired", "order", order.id, {"order_id": str(order.id)})
             expired += 1

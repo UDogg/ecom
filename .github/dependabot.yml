@@ -1,0 +1,83 @@
+# Keeps every part of the stack current, so deprecations are dealt with one small pull
+# request at a time instead of piling up into a migration. See docs/dependency-updates.md.
+#
+# * Patch and minor updates of each ecosystem arrive grouped in one weekly pull request.
+#   CI fails it when the update deprecates something we use (see the doc), so a green one is
+#   safe to merge as is.
+# * Major updates (and new language runtimes) arrive one per pull request and wait for a person.
+# * Security updates are opened as soon as an advisory is published, outside the schedule.
+version: 2
+
+updates:
+  - package-ecosystem: pip
+    directories:
+      - /services/commerce-core
+      - /services/intelligence
+      - /services/outbox-publisher
+      - /services/payments-sim
+      - /services/worker
+    schedule: { interval: weekly, day: monday, time: "04:00", timezone: Etc/UTC }
+    open-pull-requests-limit: 10
+    commit-message: { prefix: "deps(python)" }
+    groups:
+      python:
+        update-types: [minor, patch]
+
+  - package-ecosystem: gomod
+    directories:
+      - /services/bff
+      - /services/catalog-reader
+      - /bench/loadgen
+      - /tools/go
+    schedule: { interval: weekly, day: monday, time: "04:00", timezone: Etc/UTC }
+    commit-message: { prefix: "deps(go)" }
+    groups:
+      go:
+        update-types: [minor, patch]
+
+  - package-ecosystem: maven
+    directory: /services/auth-service
+    schedule: { interval: weekly, day: monday, time: "04:00", timezone: Etc/UTC }
+    commit-message: { prefix: "deps(java)" }
+    groups:
+      java:
+        update-types: [minor, patch]
+
+  # Base images in the Dockerfiles. Only patch tags are grouped: a minor tag change here is a
+  # new language runtime (python:3.14 -> 3.15, golang:1.27 -> 1.28) and gets its own pull request.
+  - package-ecosystem: docker
+    directories:
+      - /services/auth-service
+      - /services/bff
+      - /services/catalog-reader
+      - /services/commerce-core
+      - /services/intelligence
+      - /services/outbox-publisher
+      - /services/payments-sim
+      - /services/worker
+    schedule: { interval: weekly, day: monday, time: "04:00", timezone: Etc/UTC }
+    commit-message: { prefix: "deps(docker)" }
+    groups:
+      images:
+        update-types: [patch]
+
+  # Images used directly by docker-compose.yml (Postgres, RabbitMQ, Mailpit, opsbox).
+  - package-ecosystem: docker-compose
+    directory: /
+    schedule: { interval: weekly, day: monday, time: "04:00", timezone: Etc/UTC }
+    commit-message: { prefix: "deps(compose)" }
+    groups:
+      compose:
+        update-types: [patch]
+    ignore:
+      # A new Postgres major needs pg_upgrade of the data volume: planned by hand (docs/dependency-updates.md).
+      - dependency-name: postgres
+        update-types: [version-update:semver-major]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: { interval: weekly, day: monday, time: "04:00", timezone: Etc/UTC }
+    commit-message: { prefix: "deps(ci)" }
+    groups:
+      actions:
+        update-types: [minor, patch]

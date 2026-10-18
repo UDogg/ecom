@@ -112,3 +112,49 @@ class CartItem(models.Model):
             models.UniqueConstraint(fields=["cart", "product"], name="cart_item_product_unique"),
             models.CheckConstraint(condition=Q(quantity__gt=0), name="cart_item_quantity_positive"),
         ]
+
+
+class PaymentAttempt(models.Model):
+    """One try at paying an order. Its id is the provider idempotency key."""
+
+    class Status(models.TextChoices):
+        PENDING = "pending"      # sent, or about to be; outcome unknown (a timeout lands here, never in failed)
+        CAPTURED = "captured"
+        FAILED = "failed"
+        REFUNDED = "refunded"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    order = models.ForeignKey(Order, on_delete=models.PROTECT, related_name="payment_attempts")
+    status = models.CharField(max_length=10, choices=Status.choices, default=Status.PENDING)
+    amount_minor = models.BigIntegerField()
+    currency = models.CharField(max_length=3)
+    source = models.CharField(max_length=32)
+    provider_charge_id = models.CharField(max_length=64, blank=True, default="")
+    provider_version = models.PositiveIntegerField(default=0)  # highest charge version applied
+    failure_code = models.CharField(max_length=40, blank=True, default="")
+    refunded_minor = models.BigIntegerField(default=0)
+    needs_refund = models.BooleanField(default=False)  # captured for an order that can no longer take it
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "payment_attempt"
+        ordering = ["-created_at"]
+        constraints = [
+            models.CheckConstraint(condition=Q(amount_minor__gt=0), name="payment_amount_positive"),
+            models.CheckConstraint(condition=Q(refunded_minor__gte=0) & Q(refunded_minor__lte=models.F("amount_minor")),
+                                   name="payment_refund_within_amount"),
+            # At most one in-flight attempt per order: no double charge while an outcome is unknown.
+            models.UniqueConstraint(fields=["order"], condition=Q(status="pending"), name="payment_one_pending_per_order"),
+        ]
+        indexes = [models.Index(fields=["status", "created_at"], name="payment_status_created")]
+
+
+class PaymentEvent(models.Model):
+    """Webhook event ids already applied (the provider delivers at least once)."""
+
+    event_id = models.UUIDField(primary_key=True)
+    received_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "payment_event"
