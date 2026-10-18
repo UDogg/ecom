@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"runtime"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"syscall"
@@ -57,6 +59,9 @@ func main() {
 		os.Exit(0)
 	}
 	log := slog.New(slog.NewJSONHandler(os.Stdout, nil)).With("service", "catalog-reader")
+	if limit := memoryLimit(); limit > 0 {
+		log.Info("memory limit from the container", "bytes", limit)
+	}
 
 	guard, err := gate.New(os.Getenv("GATEWAY_SECRET"), os.Getenv("GATEWAY_ALLOW_UNGUARDED") == "true",
 		[]string{"/healthz", "/readyz"}, log)
@@ -87,7 +92,13 @@ func main() {
 	cc.RuntimeParams["search_path"] = env("CATALOG_DB_SCHEMA", "commerce")
 	cc.RuntimeParams["statement_timeout"] = "3000"
 	cc.RuntimeParams["default_transaction_read_only"] = "on" // belt and braces on top of the SELECT-only grant
-	cfg.MaxConns = 20
+	// Connections follow the CPUs the container gets (GOMAXPROCS honours the cgroup quota), so a
+	// bigger instance gets a bigger pool without configuration. CATALOG_DB_POOL overrides it.
+	cfg.MaxConns = int32(min(max(4*runtime.GOMAXPROCS(0), 8), 64))
+	if n, err := strconv.Atoi(env("CATALOG_DB_POOL", "")); err == nil && n > 0 {
+		cfg.MaxConns = int32(n)
+	}
+	cfg.MinConns = 2 // a warm connection or two: the first request after idle does not pay for a TLS-less handshake
 	pool, err := pgxpool.NewWithConfig(context.Background(), cfg)
 	if err != nil {
 		log.Error("cannot create database pool", "err", err)
@@ -130,4 +141,27 @@ func main() {
 		log.Error("server failed", "err", err)
 		os.Exit(1)
 	}
+}
+
+// memoryLimit sets the Go heap's soft limit to 90% of the container's memory (cgroup v2, else v1),
+// unless GOMEMLIMIT is given: the GC then works harder near the limit instead of the kernel killing
+// the process. GOMAXPROCS already follows the container's CPU quota (Go 1.25+).
+func memoryLimit() int64 {
+	if os.Getenv("GOMEMLIMIT") != "" {
+		return 0
+	}
+	for _, path := range []string{"/sys/fs/cgroup/memory.max", "/sys/fs/cgroup/memory/memory.limit_in_bytes"} {
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		n, err := strconv.ParseInt(strings.TrimSpace(string(raw)), 10, 64)
+		if err != nil || n <= 0 || n >= 1<<60 { // "max", or v1's "unlimited" (a huge number)
+			return 0
+		}
+		limit := n / 10 * 9
+		debug.SetMemoryLimit(limit)
+		return limit
+	}
+	return 0
 }

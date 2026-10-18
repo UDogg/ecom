@@ -1,5 +1,10 @@
 # Babel Bazaar local stack. Everything is free and runs on localhost.
 #
+# Sizing: no CPU caps (a service may use every core when the others are idle; cpu_shares says who
+# wins under contention: the request path first, background work last) and a memory ceiling per
+# service that ./run.sh derives from the machine's RAM (scripts/sizing.py). Each service sizes itself
+# from its ceiling, so a bigger instance is used fully without editing anything.
+#
 # Only the BFF has a port on the host (8080). Every core service sits on
 # internal networks with no route in from the host or out to the internet,
 # and refuses any request the BFF did not sign (docs/request-signing.md,
@@ -31,7 +36,11 @@ x-commerce-env: &commerce-env
 services:
   postgres:
     image: postgres:16-alpine
+    # Tuned at start to the memory and CPUs it is given (db/tune/postgres.sh).
+    entrypoint: ["/tune/postgres.sh"]
     profiles: ["core", "full"]
+    mem_limit: ${MEM_POSTGRES:-1G}   # ./run.sh sizes it from the machine (scripts/sizing.py)
+    cpu_shares: 1536
     environment:
       POSTGRES_USER: ${POSTGRES_SUPERUSER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_SUPERUSER_PASSWORD}
@@ -46,6 +55,7 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./db/init:/docker-entrypoint-initdb.d:ro
+      - ./db/tune:/tune:ro
     ports: ["127.0.0.1:5432:5432"]   # developer tool; removed in deployment
     networks: [data, ops]
     healthcheck:
@@ -72,13 +82,12 @@ services:
       context: ./services/commerce-core
       target: dev
     profiles: ["core", "full"]
+    mem_limit: ${MEM_COMMERCE:-1G}   # ./run.sh sizes it from the machine (scripts/sizing.py)
+    cpu_shares: 1024
     environment: *commerce-env
     depends_on:
       commerce-migrate: { condition: service_completed_successfully }
     networks: [app, data]           # no host port: reachable only from the BFF, signed
-    deploy:
-      resources:
-        limits: { cpus: "2.0", memory: 1G }
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/readyz', timeout=2)"]
       interval: 10s
@@ -89,6 +98,8 @@ services:
   commerce-expirer:
     image: babel-bazaar-commerce-core-prod
     profiles: ["core", "full"]
+    mem_limit: ${MEM_EXPIRER:-256M}   # ./run.sh sizes it from the machine (scripts/sizing.py)
+    cpu_shares: 512
     environment: *commerce-env
     # Expire unpaid orders, reconcile payments, purge old idempotency keys.
     command: ["python", "manage.py", "maintain", "--loop", "10"]
@@ -101,6 +112,8 @@ services:
     hostname: rabbitmq   # stable node name: the data directory survives re-creation
     user: rabbitmq
     profiles: ["core", "full"]
+    mem_limit: ${MEM_RABBITMQ:-512M}   # ./run.sh sizes it from the machine (scripts/sizing.py)
+    cpu_shares: 768
     environment:
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-shop}
       RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
@@ -120,6 +133,8 @@ services:
   mailpit:
     image: axllent/mailpit:v1.31
     profiles: ["core", "full"]
+    mem_limit: ${MEM_MAILPIT:-64M}   # ./run.sh sizes it from the machine (scripts/sizing.py)
+    cpu_shares: 256
     ports:
       - "127.0.0.1:8025:8025"     # inbox UI, developer tool
     networks: [data, ops]
@@ -128,6 +143,8 @@ services:
     build:
       context: ./services/auth-service
     profiles: ["core", "full"]
+    mem_limit: ${MEM_AUTH:-768M}   # ./run.sh sizes it from the machine (scripts/sizing.py)
+    cpu_shares: 1024
     environment:
       POSTGRES_HOST: postgres
       POSTGRES_PORT: "5432"
@@ -155,9 +172,6 @@ services:
     depends_on:
       postgres: { condition: service_healthy }
     networks: [app, data]           # no host port: the BFF proxies its sign-in pages
-    deploy:
-      resources:
-        limits: { cpus: "1.0", memory: 768M }
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8081/readyz"]
       interval: 10s
@@ -169,6 +183,8 @@ services:
     build:
       context: ./services/outbox-publisher
     profiles: ["core", "full"]
+    mem_limit: ${MEM_OUTBOX:-256M}   # ./run.sh sizes it from the machine (scripts/sizing.py)
+    cpu_shares: 768
     environment:
       POSTGRES_HOST: postgres
       POSTGRES_PORT: "5432"
@@ -181,9 +197,6 @@ services:
       commerce-migrate: { condition: service_completed_successfully }
       rabbitmq: { condition: service_healthy }
     networks: [data]
-    deploy:
-      resources:
-        limits: { cpus: "0.5", memory: 256M }
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8091/readyz', timeout=2)"]
       interval: 10s
@@ -194,6 +207,8 @@ services:
     build:
       context: ./services/worker
     profiles: ["core", "full"]
+    mem_limit: ${MEM_WORKER:-256M}   # ./run.sh sizes it from the machine (scripts/sizing.py)
+    cpu_shares: 512
     environment:
       POSTGRES_HOST: postgres
       POSTGRES_PORT: "5432"
@@ -214,9 +229,6 @@ services:
       postgres: { condition: service_healthy }
       rabbitmq: { condition: service_healthy }
     networks: [data]
-    deploy:
-      resources:
-        limits: { cpus: "0.5", memory: 256M }
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8090/readyz', timeout=2)"]
       interval: 10s
@@ -229,6 +241,8 @@ services:
       additional_contexts:
         web: ./web   # the storefront, built into the image (services/bff/Dockerfile)
     profiles: ["core", "full"]
+    mem_limit: ${MEM_BFF:-256M}   # ./run.sh sizes it from the machine (scripts/sizing.py)
+    cpu_shares: 2048
     environment:
       PUBLIC_API_BASE_URL: ${PUBLIC_API_BASE_URL}
       PUBLIC_AUTH_ISSUER_URL: ${PUBLIC_AUTH_ISSUER_URL}
@@ -242,6 +256,7 @@ services:
       INTERNAL_INTELLIGENCE_URL: http://intelligence:8001
       RATE_AUTH_PER_MINUTE: ${RATE_AUTH_PER_MINUTE:-10}
       RATE_DEFAULT_PER_MINUTE: ${RATE_DEFAULT_PER_MINUTE:-300}   # ./run.sh bench raises it so the limiter is not what gets measured
+      BFF_MICROCACHE: ${BFF_MICROCACHE:-on}
     depends_on:
       auth-service: { condition: service_healthy }
       commerce-core: { condition: service_healthy }
@@ -251,9 +266,6 @@ services:
     read_only: true
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
-    deploy:
-      resources:
-        limits: { cpus: "1.0", memory: 256M }
     healthcheck:
       test: ["CMD", "/bff", "healthcheck"]
       interval: 10s
@@ -264,6 +276,8 @@ services:
     build:
       context: ./services/catalog-reader
     profiles: ["core", "full"]
+    mem_limit: ${MEM_CATALOG:-128M}   # ./run.sh sizes it from the machine (scripts/sizing.py)
+    cpu_shares: 1536
     environment:
       POSTGRES_HOST: postgres
       POSTGRES_DB: ${POSTGRES_DB:-shop}
@@ -278,9 +292,6 @@ services:
     read_only: true
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
-    deploy:
-      resources:
-        limits: { cpus: "1.0", memory: 128M }
     healthcheck:
       test: ["CMD", "/catalog-reader", "healthcheck"]
       interval: 10s
@@ -291,6 +302,8 @@ services:
     build:
       context: ./services/intelligence
     profiles: ["core", "full"]
+    mem_limit: ${MEM_INTELLIGENCE:-512M}   # ./run.sh sizes it from the machine (scripts/sizing.py)
+    cpu_shares: 1024
     environment:
       POSTGRES_HOST: postgres
       POSTGRES_DB: ${POSTGRES_DB:-shop}
@@ -305,9 +318,6 @@ services:
     read_only: true
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
-    deploy:
-      resources:
-        limits: { cpus: "1.5", memory: 512M }
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/healthz', timeout=2)"]
       interval: 10s
@@ -318,6 +328,8 @@ services:
     build:
       context: ./services/payments-sim
     profiles: ["core", "full"]
+    mem_limit: ${MEM_PAYMENTS:-256M}   # ./run.sh sizes it from the machine (scripts/sizing.py)
+    cpu_shares: 768
     environment:
       POSTGRES_HOST: postgres
       POSTGRES_DB: ${POSTGRES_DB:-shop}

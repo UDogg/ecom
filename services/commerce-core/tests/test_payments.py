@@ -234,3 +234,13 @@ def test_concurrent_pays_charge_once(customer, make_product, provider):
     [t.join() for t in threads]
     assert results.count("started") == 1 and results.count("in-progress") == 4
     assert PaymentAttempt.objects.filter(order_id=order_id).count() == 1
+
+
+def test_order_list_queries_do_not_grow_with_orders(customer, make_product, provider, django_assert_max_num_queries):
+    for source in ("tok_visa", "tok_declined", "tok_visa", "tok_visa", "tok_declined"):
+        order_id, _ = place(customer, make_product)
+        pay(customer, order_id, source)
+    # count, page, lines, payment attempts (plus a savepoint or two): never one query per order
+    with django_assert_max_num_queries(6):
+        body = customer.get("/api/commerce/orders").json()
+    assert body["total"] == 5 and all(o["payment"]["status"] in ("captured", "failed") for o in body["items"])

@@ -125,6 +125,9 @@ up() {
   fi
 
   bold "6. Starting"
+  # Memory ceilings as shares of this machine's RAM; every service sizes itself from its own.
+  eval "$(python3 scripts/sizing.py)"
+  echo "  sized for $((STACK_MEMORY_MB / 1024)) GB of RAM and $(nproc) CPU(s) (scripts/sizing.py)"
   "${COMPOSE[@]}" up -d --remove-orphans $([ $build = 0 ] && echo --no-build) >/dev/null 2>&1 \
     || { "${COMPOSE[@]}" up -d --remove-orphans $([ $build = 0 ] && echo --no-build); red "  ✗ docker compose up failed"; exit 1; }
   wait_healthy || { red "Some services did not come up; see the logs above (./run.sh logs SERVICE)."; exit 1; }

@@ -78,8 +78,12 @@ func TestListNewestFirstWithPaging(t *testing.T) {
 		t.Fatalf("%d %v", code, body)
 	}
 	_, body = get(t, h, "/api/catalog/products?page_size=2&page=2")
-	if skus(body) != "MUG-001" {
-		t.Fatalf("page 2: %v", skus(body))
+	if skus(body) != "MUG-001" || body["total"].(float64) != 3 {
+		t.Fatalf("page 2: %v", body)
+	}
+	_, body = get(t, h, "/api/catalog/products?page_size=2&page=9")
+	if len(body["items"].([]any)) != 0 || body["total"].(float64) != 3 || body["pages"].(float64) != 2 {
+		t.Fatalf("past the end: %v", body)
 	}
 }
 

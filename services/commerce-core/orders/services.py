@@ -59,7 +59,7 @@ def order_body(order):
                 "quantity": item.quantity,
                 "unit_price_minor": item.unit_price_minor,
             }
-            for item in order.items.order_by("sku")
+            for item in sorted(order.items.all(), key=lambda i: i.sku)  # .all(): uses a prefetch when there is one
         ],
     }
 

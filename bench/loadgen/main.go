@@ -3,6 +3,7 @@
 // duration, reporting throughput and latency percentiles.
 //
 //	go run ./bench/loadgen -c 64 -d 20s http://localhost:8080/api/catalog/products
+//	go run ./bench/loadgen -H "Cookie: bb_session=..." http://localhost:8080/api/cart
 package main
 
 import (
@@ -12,18 +13,26 @@ import (
 	"net/http"
 	"os"
 	"sort"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 )
 
+type headers []string
+
+func (h *headers) String() string     { return strings.Join(*h, ", ") }
+func (h *headers) Set(v string) error { *h = append(*h, v); return nil }
+
 func main() {
 	conc := flag.Int("c", 32, "concurrent connections")
 	dur := flag.Duration("d", 15*time.Second, "duration")
 	warm := flag.Duration("w", 3*time.Second, "warm-up (not measured)")
+	var extra headers
+	flag.Var(&extra, "H", "request header \"Name: value\" (repeatable)")
 	flag.Parse()
 	if flag.NArg() != 1 {
-		fmt.Fprintln(os.Stderr, "usage: loadgen [-c N] [-d 15s] URL")
+		fmt.Fprintln(os.Stderr, "usage: loadgen [-c N] [-d 15s] [-H 'Name: value']... URL")
 		os.Exit(2)
 	}
 	url := flag.Arg(0)
@@ -45,7 +54,12 @@ func main() {
 			local := make([]time.Duration, 0, 4096)
 			for time.Now().Before(stop) {
 				t0 := time.Now()
-				resp, err := client.Get(url)
+				req, _ := http.NewRequest(http.MethodGet, url, nil)
+				for _, h := range extra {
+					name, value, _ := strings.Cut(h, ":")
+					req.Header.Set(strings.TrimSpace(name), strings.TrimSpace(value))
+				}
+				resp, err := client.Do(req)
 				if err == nil {
 					io.Copy(io.Discard, resp.Body)
 					resp.Body.Close()

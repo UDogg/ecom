@@ -131,7 +131,7 @@ func (s *Server) api(w http.ResponseWriter, r *http.Request, e *contract.Endpoin
 		// Re-encode what was validated: duplicate keys and other parser quirks never reach the core.
 		upstreamBody, _ = json.Marshal(body)
 	}
-	if e.Cache > 0 { // public and anonymous by construction (contract.New checks it)
+	if e.Cache > 0 && s.cfg.MicroCache { // public and anonymous by construction (contract.New checks it)
 		s.cache.serve(w, e.Name+" "+e.UpstreamPath(params)+"?"+query, e.Cache, func(w http.ResponseWriter) {
 			s.forward(w, r, e, params, query, nil, "", nil)
 		})
@@ -243,6 +243,13 @@ func (s *Server) forward(w http.ResponseWriter, r *http.Request, e *contract.End
 	schema, contentType := e.Response, "application/json"
 	if resp.StatusCode >= 400 {
 		schema, contentType = "problem", "application/problem+json"
+	}
+	if resp.StatusCode < 400 && s.contract.Fits(schema, decoded) {
+		// Nothing to drop or rename: the upstream bytes are the public answer (checked, not trusted).
+		w.Header().Set("Content-Type", contentType)
+		w.WriteHeader(resp.StatusCode)
+		w.Write(raw)
+		return
 	}
 	shaped, err := s.contract.Shape(schema, decoded)
 	if err != nil {

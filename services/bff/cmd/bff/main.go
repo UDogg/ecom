@@ -92,24 +92,25 @@ func main() {
 	}
 }
 
-// memoryLimit sets the Go heap's soft limit to 90% of the container's memory
-// (cgroup v2 memory.max), unless GOMEMLIMIT is given: the GC then works harder
-// near the limit instead of the kernel killing the process. GOMAXPROCS already
-// follows the container's CPU quota (Go 1.25+), so the BFF uses exactly the
-// CPU it is given and scales with the instance.
+// memoryLimit sets the Go heap's soft limit to 90% of the container's memory (cgroup v2, else v1),
+// unless GOMEMLIMIT is given: the GC then works harder near the limit instead of the kernel killing
+// the process. GOMAXPROCS already follows the container's CPU quota (Go 1.25+).
 func memoryLimit() int64 {
 	if os.Getenv("GOMEMLIMIT") != "" {
 		return 0
 	}
-	raw, err := os.ReadFile("/sys/fs/cgroup/memory.max")
-	if err != nil {
-		return 0
+	for _, path := range []string{"/sys/fs/cgroup/memory.max", "/sys/fs/cgroup/memory/memory.limit_in_bytes"} {
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		n, err := strconv.ParseInt(strings.TrimSpace(string(raw)), 10, 64)
+		if err != nil || n <= 0 || n >= 1<<60 { // "max", or v1's "unlimited" (a huge number)
+			return 0
+		}
+		limit := n / 10 * 9
+		debug.SetMemoryLimit(limit)
+		return limit
 	}
-	n, err := strconv.ParseInt(strings.TrimSpace(string(raw)), 10, 64)
-	if err != nil || n <= 0 { // "max": no limit
-		return 0
-	}
-	limit := n / 10 * 9
-	debug.SetMemoryLimit(limit)
-	return limit
+	return 0
 }

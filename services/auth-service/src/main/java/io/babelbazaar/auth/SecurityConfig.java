@@ -118,7 +118,7 @@ public class SecurityConfig {
     /** Authorizations (codes, issued tokens) survive restarts and are shared across replicas. */
     @Bean
     OAuth2AuthorizationService authorizationService(JdbcTemplate jdbc, RegisteredClientRepository clients) {
-        return new JdbcOAuth2AuthorizationService(jdbc, clients);
+        return new LazyAuthorizationService(() -> new JdbcOAuth2AuthorizationService(jdbc, clients));
     }
 
     @Bean

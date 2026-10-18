@@ -439,6 +439,59 @@ func validateValue(f Field, v any, path string, errs ValidationError, depth int)
 	}
 }
 
+// Fits reports whether v is already exactly its public shape: every field listed by the schema, none
+// renamed, nested objects and lists fitting their own schemas. Then the upstream bytes can be sent as
+// they are, which spares rebuilding and re-encoding the answer; anything else is shaped.
+func (c *Contract) Fits(schema string, v any) bool {
+	return c.fits(schema, v, 0)
+}
+
+func (c *Contract) fits(schema string, v any, depth int) bool {
+	if depth > 16 {
+		return false
+	}
+	if v == nil {
+		return true
+	}
+	obj, ok := v.(map[string]any)
+	if !ok {
+		return false
+	}
+	fields := c.Schemas[schema]
+	for name, val := range obj {
+		spec, listed := fields[name]
+		if !listed || (spec.As != "" && spec.As != name) {
+			return false
+		}
+		switch {
+		case spec.Raw:
+		case spec.Schema != "":
+			if !c.fits(spec.Schema, val, depth+1) {
+				return false
+			}
+		case spec.List != "":
+			if val == nil {
+				continue
+			}
+			items, ok := val.([]any)
+			if !ok {
+				return false
+			}
+			for _, item := range items {
+				if !c.fits(spec.List, item, depth+1) {
+					return false
+				}
+			}
+		default:
+			switch val.(type) {
+			case map[string]any, []any:
+				return false // an object or list needs a schema to be exposed
+			}
+		}
+	}
+	return true
+}
+
 // Shape copies only the fields the schema lists, renamed to their public names.
 func (c *Contract) Shape(schema string, v any) (any, error) {
 	return c.shape(schema, v, 0)

@@ -103,7 +103,8 @@ provider = Provider()
 
 
 def payment_summary(order):
-    attempt = order.payment_attempts.order_by("-created_at").first()
+    # .all(): uses the list view's prefetch instead of one query per order.
+    attempt = max(order.payment_attempts.all(), key=lambda a: a.created_at, default=None)
     if attempt is None:
         return {"status": None, "failure_code": None}
     return {"status": attempt.status, "failure_code": attempt.failure_code or None}

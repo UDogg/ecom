@@ -187,3 +187,20 @@ func TestRecursiveCategoryTree(t *testing.T) {
 		t.Fatalf("%s %v", b, err)
 	}
 }
+
+func TestFitsOnlyWhenNothingWouldChange(t *testing.T) {
+	c := load(t)
+	var ok, extra, nested any
+	json.Unmarshal([]byte(`{"items":[{"id":"p1","sku":"MUG","name":"Mug","category":{"slug":"k","name":"K"},"images":[]}],"total":1,"page":1,"page_size":24,"pages":1}`), &ok)
+	json.Unmarshal([]byte(`{"items":[{"id":"p1","cost_minor":200}],"total":1}`), &extra)
+	json.Unmarshal([]byte(`{"items":[{"id":"p1","category":{"slug":"k","internal_id":9}}]}`), &nested)
+	if !c.Fits("product_page", ok) {
+		t.Error("an exact answer must pass through")
+	}
+	if c.Fits("product_page", extra) || c.Fits("product_page", nested) {
+		t.Error("an answer with an unlisted field must be shaped")
+	}
+	if c.Fits("product_page", map[string]any{"total": map[string]any{"x": 1}}) {
+		t.Error("an object where a scalar is listed must be shaped (and refused)")
+	}
+}

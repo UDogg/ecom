@@ -1,5 +1,6 @@
 from django.conf import settings
 from django.db import transaction
+from django.db.models import Prefetch
 from rest_framework import serializers
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -12,7 +13,7 @@ from outbox.models import OutboxEvent
 from outbox.service import trace_ctx_from
 
 from . import payments, services
-from .models import Cart, CartItem, Order, PaymentAttempt
+from .models import Cart, CartItem, Order, OrderItem, PaymentAttempt
 
 MAX_LINES = 50
 MAX_QUANTITY = 1000
@@ -92,7 +93,11 @@ class CheckoutView(APIView):
 
 
 def _orders_qs():
-    return Order.objects.prefetch_related("items")
+    # Lines and payment attempts for a whole page in two queries, not two per order.
+    return Order.objects.prefetch_related(
+        Prefetch("items", queryset=OrderItem.objects.order_by("sku")),
+        Prefetch("payment_attempts", queryset=PaymentAttempt.objects.order_by("-created_at")),
+    )
 
 
 class OrderList(APIView):

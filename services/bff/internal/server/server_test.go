@@ -230,7 +230,7 @@ func newHarness(t *testing.T) *harness {
 	hs.intel, hs.intelSrv = newCore(t, jsonReply(200, `{"items":[],"strategy":"popular","degraded":false}`))
 	u := func(s *httptest.Server) *url.URL { p, _ := url.Parse(s.URL); return p }
 	pub, _ := url.Parse(publicURL)
-	cfg := &config.Config{PublicURL: pub, Issuer: publicURL, GatewaySecret: secret, ClientID: "bff", ClientSecret: clientSecret,
+	cfg := &config.Config{PublicURL: pub, MicroCache: true, Issuer: publicURL, GatewaySecret: secret, ClientID: "bff", ClientSecret: clientSecret,
 		Upstreams:   map[string]*url.URL{"auth": u(authSrv), "commerce": u(commerceSrv), "catalog": u(catalogSrv), "intelligence": u(hs.intelSrv)},
 		SessionIdle: 30 * time.Minute, SessionLifetime: 8 * time.Hour, MaxSessions: 1000, MaxBodyBytes: 256 << 10,
 		UpstreamTimeout: 2 * time.Second, RateDefaultPerMinute: 1000, RateAuthPerMinute: 100, RateRegisterPerMinute: 5,

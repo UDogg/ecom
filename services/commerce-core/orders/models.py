@@ -32,6 +32,11 @@ class Order(models.Model):
     class Meta:
         db_table = "orders"
         ordering = ["-created_at"]
+        indexes = [
+            # "My orders" and the owner's list filtered by status, newest first (the shapes they are read in).
+            models.Index(fields=["customer_id", "-created_at"], name="order_customer_newest"),
+            models.Index(fields=["status", "-created_at"], name="order_status_newest"),
+        ]
         constraints = [
             models.CheckConstraint(condition=Q(total_minor__gte=0), name="order_total_non_negative"),
             models.CheckConstraint(condition=Q(status__in=ORDER_STATUSES), name="order_status_valid"),
