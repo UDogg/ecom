@@ -1,0 +1,93 @@
+# Babel Bazaar local stack. Services land here as the roadmap phases ship;
+# see README section 22. Everything is free and runs on localhost.
+name: babel-bazaar
+
+x-commerce-env: &commerce-env
+  POSTGRES_HOST: postgres
+  POSTGRES_PORT: "5432"
+  POSTGRES_DB: ${POSTGRES_DB:-shop}
+  COMMERCE_DB_USER: commerce
+  COMMERCE_DB_PASSWORD: ${COMMERCE_DB_PASSWORD}
+  DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY}
+  DJANGO_DEBUG: ${DJANGO_DEBUG:-false}
+  DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:-localhost,127.0.0.1,commerce-core}
+  PUBLIC_AUTH_ISSUER_URL: ${PUBLIC_AUTH_ISSUER_URL}
+  PUBLIC_ASSET_BASE_URL: ${PUBLIC_ASSET_BASE_URL}
+  INTERNAL_AUTH_JWKS_URL: ${INTERNAL_AUTH_JWKS_URL:-}
+  JWT_DEV_HS256_SECRET: ${JWT_DEV_HS256_SECRET:-}
+  RESERVATION_TTL_SECONDS: ${RESERVATION_TTL_SECONDS:-900}
+  IDEMPOTENCY_RETENTION_HOURS: ${IDEMPOTENCY_RETENTION_HOURS:-24}
+  LOG_LEVEL: ${LOG_LEVEL:-info}
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    profiles: ["core", "full"]
+    environment:
+      POSTGRES_USER: ${POSTGRES_SUPERUSER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_SUPERUSER_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-shop}
+      COMMERCE_DB_PASSWORD: ${COMMERCE_DB_PASSWORD}
+      CATALOG_READER_DB_PASSWORD: ${CATALOG_READER_DB_PASSWORD}
+      INTELLIGENCE_DB_PASSWORD: ${INTELLIGENCE_DB_PASSWORD}
+      AUTH_DB_PASSWORD: ${AUTH_DB_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./db/init:/docker-entrypoint-initdb.d:ro
+    ports: ["127.0.0.1:5432:5432"]   # dev only; removed in deployment
+    networks: [data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  # One-shot: applies migrations so `up` alone yields a working schema.
+  commerce-migrate:
+    build:
+      context: ./services/commerce-core
+      target: prod
+    image: babel-bazaar-commerce-core-prod
+    profiles: ["core", "full"]
+    environment: *commerce-env
+    command: ["python", "manage.py", "migrate", "--noinput"]
+    depends_on:
+      postgres: { condition: service_healthy }
+    networks: [data]
+
+  commerce-core:
+    build:
+      context: ./services/commerce-core
+      target: dev
+    profiles: ["core", "full"]
+    environment: *commerce-env
+    depends_on:
+      commerce-migrate: { condition: service_completed_successfully }
+    ports: ["127.0.0.1:8000:8000"]
+    networks: [app, data]
+    deploy:
+      resources:
+        limits: { cpus: "2.0", memory: 1G }
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/readyz', timeout=2)"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+  # Releases stock held by unpaid orders once their reservation TTL passes.
+  commerce-expirer:
+    image: babel-bazaar-commerce-core-prod
+    profiles: ["core", "full"]
+    environment: *commerce-env
+    command: ["sh", "-c", "while true; do python manage.py expire_reservations; sleep 30; done"]
+    depends_on:
+      commerce-migrate: { condition: service_completed_successfully }
+    networks: [data]
+
+networks:
+  edge: {}
+  app: {}
+  data: {}
+
+volumes:
+  pgdata: {}

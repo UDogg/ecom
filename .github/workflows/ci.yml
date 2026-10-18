@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  commerce-core:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: ci-only
+          POSTGRES_DB: shop
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 3s --health-retries 20
+    defaults:
+      run:
+        working-directory: services/commerce-core
+    env:
+      POSTGRES_HOST: localhost
+      COMMERCE_DB_USER: postgres
+      COMMERCE_DB_PASSWORD: ci-only
+      JWT_DEV_HS256_SECRET: ci-only-secret-that-is-long-enough-for-hs256
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: services/commerce-core/requirements-dev.txt
+      - run: pip install -r requirements-dev.txt
+      - name: Migrations are complete
+        run: python manage.py makemigrations --check --dry-run
+      - run: python manage.py check
+      - run: pytest
+
+  compose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: cp .env.example .env
+      - run: docker compose --profile core config --quiet
+      - run: docker compose --profile core build

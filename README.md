@@ -7,7 +7,7 @@
 | | |
 |---|---|
 | **Type** | Architecture showcase + proof of concept |
-| **Status** | Proposed (v2.0 of the design document) |
+| **Status** | In progress: Phase 1 and 2 transactional core built (`services/commerce-core`); see [Implementation Roadmap](#22-implementation-roadmap) |
 | **Runs on** | Docker Compose, free and open-source components only |
 | **Shop owner can** | Sign in to an admin panel, add products (with images), edit them, adjust stock, and remove them |
 | **Live demo** | GitHub Pages, with the whole architecture simulated in the browser (see [section 24](#24-github-pages-demo-mode)) |
@@ -1274,19 +1274,21 @@ Point native processes at `localhost` datastores by using the host-mapped ports 
 
 Begin with a small but realistic workflow, **not** a large collection of services. Add Spring Boot, FastAPI, or Go only where a specific requirement justifies the complexity.
 
+> **What runs today:** `make up` starts PostgreSQL (with per-service roles), `commerce-core`, a one-shot migrator, and the reservation expirer. `make seed`, `make token ROLE=shop_owner`, and `make test` work. The admin and customer APIs are on `http://localhost:8000` until the gateway, auth-service, and web app land. Targets in [section 21](#21-development-workflow) that are not in the `Makefile` yet belong to later phases.
+
 ### Phase 1: Baseline
-- [ ] Domain model and core invariants
-- [ ] Baseline commerce API (Django monolith) with admin add/remove product
-- [ ] PostgreSQL schema and migration strategy
+- [x] Domain model and core invariants
+- [x] Baseline commerce API (Django monolith) with admin add/remove product (`services/commerce-core`)
+- [x] PostgreSQL schema and migration strategy (`commerce` schema, per-service roles in `db/init/`)
 - [ ] Representative load tests and initial cost/latency measurements
 
 **Exit:** baseline is correct and measurements are reproducible.
 
 ### Phase 2: Transactional core
-- [ ] Product and inventory operations, including archive and delete rules
-- [ ] Cart, checkout, order state machine
-- [ ] Inventory reservation, idempotent requests
-- [ ] Transactional outbox
+- [x] Product and inventory operations, including archive and delete rules
+- [x] Cart, checkout, order state machine (payment transitions arrive with `payments-sim`)
+- [x] Inventory reservation, idempotent requests
+- [x] Transactional outbox (relay to a log sink; RabbitMQ sink is Phase 3)
 
 **Exit:** concurrency and transaction tests pass.
 
