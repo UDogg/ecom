@@ -6,7 +6,12 @@ spring:
 
 auth:
   issuer: http://issuer.test
-  redirect-uris: http://localhost:3000/auth/callback
+  client-id: bff
+  client-secret: test-bff-client-secret-0123456789abcdef
+  redirect-uris: http://localhost:8080/auth/callback
+  gateway:
+    # The guard has its own suite (GatewayGuardTest); everywhere else MockMvc talks to the app directly.
+    allow-unguarded: true
   signing-key-path: ${java.io.tmpdir}/babel-bazaar-auth-test-key.json
   seed:
     enabled: true

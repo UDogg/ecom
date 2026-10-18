@@ -21,7 +21,11 @@ OTHER_CUSTOMER_ID = uuid.UUID("00000000-0000-4000-8000-000000000003")
 
 @pytest.fixture(autouse=True)
 def _dev_secret():
-    with override_settings(JWT_DEV_HS256_SECRET=TEST_SECRET):
+    # The gateway guard has its own tests (test_gateway.py); everywhere else
+    # requests go straight to the views.
+    # Pinned so the suite behaves the same whatever the environment sets (Compose sets JWT_AUDIENCE=bff).
+    with override_settings(JWT_DEV_HS256_SECRET=TEST_SECRET, GATEWAY_SECRET="", GATEWAY_ALLOW_UNGUARDED=True,
+                           JWT_AUDIENCE=None, JWT_ISSUER="http://localhost:8080"):
         yield
 
 

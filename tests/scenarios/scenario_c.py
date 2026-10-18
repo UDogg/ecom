@@ -27,17 +27,15 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "scripts"))
-import login  # noqa: E402
+import bff  # noqa: E402
 
-env = login.read_env_file(ROOT / ".env")
-API = env.get("SCENARIO_API_URL", "http://localhost:8000")
-ISSUER = env.get("PUBLIC_AUTH_ISSUER_URL", "http://localhost:8081")
+env = bff.read_env_file(ROOT / ".env")
+API = env.get("PUBLIC_API_BASE_URL", "http://localhost:8080")  # everything goes through the BFF
 MAILPIT = env.get("SCENARIO_MAILPIT_URL", "http://localhost:8025")
 # Longer than the AMQP heartbeat, so publisher and worker must detect the dead
 # connection and reconnect, not just resume a stalled socket.
 OUTAGE_SECONDS = float(env.get("SCENARIO_OUTAGE_SECONDS", "25"))
 MODE = env.get("SCENARIO_C_MODE", "stop")
-REDIRECT = "http://localhost:3000/auth/callback"
 
 
 def call(method, path, token=None, body=None, headers=None, base=API):
@@ -73,7 +71,7 @@ def wait_for(predicate, timeout, interval=0.5):
 
 
 def outbox_pending(owner):
-    return call("GET", "/api/commerce/admin/dashboard", owner)[1]["system"]["outbox_pending"]
+    return owner.call("GET", "/api/admin/dashboard")[2]["system"]["outbox_pending"]
 
 
 def mails_with_subject(subject):
@@ -87,10 +85,10 @@ def main():
     global MODE
     MODE = os.environ.get("SCENARIO_C_MODE", MODE)
     print(f"Scenario C: broker interruption (mode: {MODE})")
-    owner = login.login(ISSUER, "storefront", REDIRECT, env["SEED_OWNER_EMAIL"], env["SEED_OWNER_PASSWORD"])["access_token"]
-    customer = login.login(ISSUER, "storefront", REDIRECT, env["SEED_CUSTOMER_EMAIL"],
-                           env["SEED_CUSTOMER_PASSWORD"])["access_token"]
-    check(True, "owner and customer signed in through auth-service (OIDC + PKCE)")
+    owner, customer = bff.BffSession(API), bff.BffSession(API)
+    owner.login(env["SEED_OWNER_EMAIL"], env["SEED_OWNER_PASSWORD"])
+    customer.login(env["SEED_CUSTOMER_EMAIL"], env["SEED_CUSTOMER_PASSWORD"])
+    check(True, "owner and customer signed in through the BFF (server-side OIDC + PKCE, session cookies only)")
     check(wait_for(lambda: outbox_pending(owner) == 0, 60) is not None, "outbox is drained before the outage")
 
     tag = uuid.uuid4().hex[:6].upper()
@@ -99,19 +97,18 @@ def main():
     try:
         ids = []
         for i in range(3):
-            status, product = call("POST", "/api/commerce/admin/products", owner, {
+            status, _, product = owner.call("POST", "/api/admin/products", {
                 "sku": f"SCEN-C-{tag}-{i}", "name": f"Outage product {i}", "price_minor": 1000 + i,
                 "category": "scenario", "initial_stock": 10, "status": "active"})
             check(status == 201, f"create product {i} while the broker is down (HTTP {status})")
             ids.append(product["id"])
-        status, _ = call("POST", f"/api/commerce/admin/inventory/{ids[1]}/adjust", owner,
-                         {"delta": 5, "reason": "scenario C restock"})
+        status, _, _ = owner.call("POST", f"/api/admin/inventory/{ids[1]}/adjust",
+                                  {"delta": 5, "reason": "scenario C restock"})
         check(status == 201, f"adjust stock while the broker is down (HTTP {status})")
-        status, _ = call("DELETE", f"/api/commerce/admin/products/{ids[2]}", owner)
+        status, _, _ = owner.call("DELETE", f"/api/admin/products/{ids[2]}")
         check(status == 200, f"archive a product while the broker is down (HTTP {status})")
-        status, order = call("POST", "/api/commerce/checkout", customer,
-                             {"items": [{"product_id": ids[0], "quantity": 2}]},
-                             headers={"Idempotency-Key": f"scenario-c-{tag}"})
+        status, _, order = customer.call("POST", "/api/checkout", {"items": [{"product_id": ids[0], "quantity": 2}]},
+                                         headers={"Idempotency-Key": f"scenario-c-{tag}"})
         check(status == 201, f"customer checks out while the broker is down (HTTP {status})")
 
         # 3 created + 1 adjusted + 1 archived + order.placed + inventory.changed

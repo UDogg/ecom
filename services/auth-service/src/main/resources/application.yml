@@ -20,12 +20,17 @@ spring:
       enabled: true
 
 auth:
-  issuer: ${PUBLIC_AUTH_ISSUER_URL:http://localhost:8081}
-  client-id: ${OIDC_CLIENT_ID:storefront}
-  redirect-uris: ${OIDC_REDIRECT_URIS:http://localhost:3000/auth/callback}
-  cors-allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000}
+  # The BFF's public origin: the browser only ever sees the BFF, which proxies the sign-in pages.
+  issuer: ${PUBLIC_AUTH_ISSUER_URL:http://localhost:8080}
+  client-id: ${OIDC_CLIENT_ID:bff}
+  client-secret: ${OIDC_CLIENT_SECRET:}
+  redirect-uris: ${OIDC_REDIRECT_URIS:http://localhost:8080/auth/callback}
   access-token-ttl: ${ACCESS_TOKEN_TTL_SECONDS:600}s
+  refresh-token-ttl: ${REFRESH_TOKEN_TTL_SECONDS:28800}s
   signing-key-path: ${AUTH_SIGNING_KEY_PATH:./var/signing-key.json}
+  gateway:
+    secret: ${GATEWAY_SECRET:}
+    allow-unguarded: ${GATEWAY_ALLOW_UNGUARDED:false}
   seed:
     enabled: ${AUTH_SEED_ENABLED:false}
     owner-email: ${SEED_OWNER_EMAIL:}

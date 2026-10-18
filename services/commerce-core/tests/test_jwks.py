@@ -130,6 +130,13 @@ def test_wrong_issuer_is_rejected(anon, auth_service):
     assert get_orders(anon, rs256(KEY_A, "key-a", iss="http://evil.example")).status_code == 401
 
 
+def test_audience_is_enforced_when_configured(anon, auth_service, settings):
+    settings.JWT_AUDIENCE = "bff"
+    assert get_orders(anon, rs256(KEY_A, "key-a", aud="bff")).status_code == 200
+    assert get_orders(anon, rs256(KEY_A, "key-a", aud="some-other-client")).status_code == 401
+    assert get_orders(anon, rs256(KEY_A, "key-a")).status_code == 401  # no aud at all
+
+
 def test_hs256_is_refused_when_dev_tokens_are_disabled(anon, auth_service):
     # Classic alg-confusion: an HS256 token "signed" with the public key. PyJWT
     # refuses to create one, so build it by hand the way an attacker would.

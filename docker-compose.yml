@@ -1,5 +1,10 @@
-# Babel Bazaar local stack. Services land here as the roadmap phases ship;
-# see README section 22. Everything is free and runs on localhost.
+# Babel Bazaar local stack. Everything is free and runs on localhost.
+#
+# Only the BFF has a port on the host (8080). Every core service sits on
+# internal networks with no route in from the host or out to the internet,
+# and refuses any request the BFF did not sign (docs/request-signing.md,
+# docs/core-lockdown.md). Postgres, RabbitMQ's UI and Mailpit keep loopback
+# ports as local developer tools, on a separate `ops` network.
 name: babel-bazaar
 
 x-commerce-env: &commerce-env
@@ -14,6 +19,8 @@ x-commerce-env: &commerce-env
   PUBLIC_AUTH_ISSUER_URL: ${PUBLIC_AUTH_ISSUER_URL}
   PUBLIC_ASSET_BASE_URL: ${PUBLIC_ASSET_BASE_URL}
   INTERNAL_AUTH_JWKS_URL: ${INTERNAL_AUTH_JWKS_URL:-http://auth-service:8081/oauth2/jwks}
+  JWT_AUDIENCE: ${OIDC_CLIENT_ID:-bff}
+  GATEWAY_SECRET: ${GATEWAY_SECRET}
   JWT_DEV_HS256_SECRET: ${JWT_DEV_HS256_SECRET:-}
   RESERVATION_TTL_SECONDS: ${RESERVATION_TTL_SECONDS:-900}
   IDEMPOTENCY_RETENTION_HOURS: ${IDEMPOTENCY_RETENTION_HOURS:-24}
@@ -36,8 +43,8 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./db/init:/docker-entrypoint-initdb.d:ro
-    ports: ["127.0.0.1:5432:5432"]   # dev only; removed in deployment
-    networks: [data]
+    ports: ["127.0.0.1:5432:5432"]   # developer tool; removed in deployment
+    networks: [data, ops]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 5s
@@ -65,8 +72,7 @@ services:
     environment: *commerce-env
     depends_on:
       commerce-migrate: { condition: service_completed_successfully }
-    ports: ["127.0.0.1:8000:8000"]
-    networks: [app, data]
+    networks: [app, data]           # no host port: reachable only from the BFF, signed
     deploy:
       resources:
         limits: { cpus: "2.0", memory: 1G }
@@ -95,8 +101,8 @@ services:
     volumes:
       - rabbitmq:/var/lib/rabbitmq
     ports:
-      - "127.0.0.1:15672:15672"   # management UI, dev only
-    networks: [data]
+      - "127.0.0.1:15672:15672"   # management UI, developer tool
+    networks: [data, ops]
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
       interval: 10s
@@ -107,8 +113,8 @@ services:
     image: axllent/mailpit:v1.21
     profiles: ["core", "full"]
     ports:
-      - "127.0.0.1:8025:8025"     # inbox UI
-    networks: [data]
+      - "127.0.0.1:8025:8025"     # inbox UI, developer tool
+    networks: [data, ops]
 
   auth-service:
     build:
@@ -121,10 +127,12 @@ services:
       AUTH_DB_USER: auth
       AUTH_DB_PASSWORD: ${AUTH_DB_PASSWORD}
       PUBLIC_AUTH_ISSUER_URL: ${PUBLIC_AUTH_ISSUER_URL}
-      OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-storefront}
+      OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-bff}
+      OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET}
       OIDC_REDIRECT_URIS: ${OIDC_REDIRECT_URIS}
-      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS}
       ACCESS_TOKEN_TTL_SECONDS: ${ACCESS_TOKEN_TTL_SECONDS:-600}
+      REFRESH_TOKEN_TTL_SECONDS: ${REFRESH_TOKEN_TTL_SECONDS:-28800}
+      GATEWAY_SECRET: ${GATEWAY_SECRET}
       AUTH_SEED_ENABLED: ${AUTH_SEED_ENABLED:-false}
       SEED_OWNER_EMAIL: ${SEED_OWNER_EMAIL:-}
       SEED_OWNER_PASSWORD: ${SEED_OWNER_PASSWORD:-}
@@ -135,8 +143,7 @@ services:
       - authkeys:/var/lib/auth
     depends_on:
       postgres: { condition: service_healthy }
-    ports: ["127.0.0.1:8081:8081"]
-    networks: [app, data]
+    networks: [app, data]           # no host port: the BFF proxies its sign-in pages
     deploy:
       resources:
         limits: { cpus: "1.0", memory: 768M }
@@ -205,10 +212,97 @@ services:
       timeout: 3s
       retries: 10
 
+  bff:
+    build:
+      context: ./services/bff
+    profiles: ["core", "full"]
+    environment:
+      PUBLIC_API_BASE_URL: ${PUBLIC_API_BASE_URL}
+      PUBLIC_AUTH_ISSUER_URL: ${PUBLIC_AUTH_ISSUER_URL}
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      GATEWAY_SECRET: ${GATEWAY_SECRET}
+      OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-bff}
+      OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET}
+      INTERNAL_AUTH_URL: http://auth-service:8081
+      INTERNAL_COMMERCE_URL: http://commerce-core:8000
+      INTERNAL_CATALOG_URL: http://catalog-reader:8082
+      INTERNAL_INTELLIGENCE_URL: http://intelligence:8001
+      RATE_AUTH_PER_MINUTE: ${RATE_AUTH_PER_MINUTE:-10}
+    depends_on:
+      auth-service: { condition: service_healthy }
+      commerce-core: { condition: service_healthy }
+      catalog-reader: { condition: service_healthy }
+    ports: ["127.0.0.1:8080:8080"]  # the one public entry point
+    networks: [edge, app]
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    deploy:
+      resources:
+        limits: { cpus: "1.0", memory: 256M }
+    healthcheck:
+      test: ["CMD", "/bff", "healthcheck"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+  catalog-reader:
+    build:
+      context: ./services/catalog-reader
+    profiles: ["core", "full"]
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_DB: ${POSTGRES_DB:-shop}
+      CATALOG_READER_DB_PASSWORD: ${CATALOG_READER_DB_PASSWORD}
+      PUBLIC_ASSET_BASE_URL: ${PUBLIC_ASSET_BASE_URL}
+      GATEWAY_SECRET: ${GATEWAY_SECRET}
+    depends_on:
+      commerce-migrate: { condition: service_completed_successfully }
+    networks: [app, data]
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    deploy:
+      resources:
+        limits: { cpus: "1.0", memory: 128M }
+    healthcheck:
+      test: ["CMD", "/catalog-reader", "healthcheck"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+  intelligence:
+    build:
+      context: ./services/intelligence
+    profiles: ["core", "full"]
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_DB: ${POSTGRES_DB:-shop}
+      INTELLIGENCE_DB_PASSWORD: ${INTELLIGENCE_DB_PASSWORD}
+      MAX_CONCURRENT_INFERENCES: "4"
+      GATEWAY_SECRET: ${GATEWAY_SECRET}
+    depends_on:
+      commerce-migrate: { condition: service_completed_successfully }
+    networks: [app, data]
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    deploy:
+      resources:
+        limits: { cpus: "1.5", memory: 512M }
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/healthz', timeout=2)"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
 networks:
-  edge: {}
-  app: {}
-  data: {}
+  edge: {}                  # the BFF's public side
+  app:                      # BFF to core services
+    internal: true          # no host access, no internet egress
+  data:                     # services to datastores and the broker
+    internal: true
+  ops: {}                   # loopback developer tools only (psql, RabbitMQ UI, Mailpit)
 
 volumes:
   pgdata: {}

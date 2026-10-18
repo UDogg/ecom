@@ -19,7 +19,7 @@ Symptoms:
 
 1. Restore RabbitMQ (`docker compose --profile core start rabbitmq`).
 2. Watch the backlog drain:
-   `curl -s localhost:8000/api/commerce/admin/dashboard -H "Authorization: Bearer $(make -s token)" | jq .system`
+   `make api ROLE=owner CALL="GET /api/admin/dashboard"` (look at `system`)
 3. Within one backoff interval the publisher reconnects and publishes in
    commit order. Duplicates are possible (at-least-once delivery), and the
    worker drops them by event id.

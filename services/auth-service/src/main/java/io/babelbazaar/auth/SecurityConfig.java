@@ -1,7 +1,6 @@
 package io.babelbazaar.auth;
 
 import java.nio.file.Path;
-import java.util.List;
 
 import com.nimbusds.jose.jwk.JWKSet;
 import com.nimbusds.jose.jwk.RSAKey;
@@ -36,9 +35,6 @@ import org.springframework.security.oauth2.server.authorization.token.OAuth2Toke
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.LoginUrlAuthenticationEntryPoint;
 import org.springframework.security.web.util.matcher.MediaTypeRequestMatcher;
-import org.springframework.web.cors.CorsConfiguration;
-import org.springframework.web.cors.CorsConfigurationSource;
-import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
 @Configuration
 public class SecurityConfig {
@@ -55,8 +51,7 @@ public class SecurityConfig {
                 .exceptionHandling(e -> e.defaultAuthenticationEntryPointFor(
                         new LoginUrlAuthenticationEntryPoint("/login"),
                         new MediaTypeRequestMatcher(MediaType.TEXT_HTML)))
-                .oauth2ResourceServer(rs -> rs.jwt(Customizer.withDefaults()))
-                .cors(Customizer.withDefaults());
+                .oauth2ResourceServer(rs -> rs.jwt(Customizer.withDefaults()));
         return http.build();
     }
 
@@ -68,19 +63,24 @@ public class SecurityConfig {
                         .requestMatchers("/healthz", "/readyz", "/error", "/login", "/api/auth/register").permitAll()
                         .anyRequest().authenticated())
                 .formLogin(Customizer.withDefaults())
-                // The JSON registration API uses no cookies, so CSRF does not apply to it.
-                .csrf(c -> c.ignoringRequestMatchers("/api/auth/**"))
-                .cors(Customizer.withDefaults());
+                // The JSON registration API uses no cookies (the BFF calls it, signed), so CSRF does not apply to it.
+                .csrf(c -> c.ignoringRequestMatchers("/api/auth/**"));
         return http.build();
     }
 
     @Bean
-    RegisteredClientRepository registeredClients(AuthProperties props) {
-        // The storefront is a public browser client: no secret, PKCE required.
-        RegisteredClient storefront = RegisteredClient.withId(props.clientId())
+    RegisteredClientRepository registeredClients(AuthProperties props, PasswordEncoder passwords) {
+        // The BFF is the only client: confidential (it holds a secret and keeps every token server-side), PKCE as well,
+        // rotating refresh tokens. No browser ever receives a token.
+        if (props.clientSecret() == null || props.clientSecret().length() < 32) {
+            throw new IllegalStateException("OIDC_CLIENT_SECRET must be at least 32 characters (openssl rand -hex 32).");
+        }
+        RegisteredClient bff = RegisteredClient.withId(props.clientId())
                 .clientId(props.clientId())
-                .clientAuthenticationMethod(ClientAuthenticationMethod.NONE)
+                .clientSecret(passwords.encode(props.clientSecret()))
+                .clientAuthenticationMethod(ClientAuthenticationMethod.CLIENT_SECRET_BASIC)
                 .authorizationGrantType(AuthorizationGrantType.AUTHORIZATION_CODE)
+                .authorizationGrantType(AuthorizationGrantType.REFRESH_TOKEN)
                 .redirectUris(uris -> uris.addAll(props.redirectUris()))
                 .scope(OidcScopes.OPENID)
                 .scope(OidcScopes.PROFILE)
@@ -91,10 +91,25 @@ public class SecurityConfig {
                         .build())
                 .tokenSettings(TokenSettings.builder()
                         .accessTokenTimeToLive(props.accessTokenTtl())
+                        .refreshTokenTimeToLive(props.refreshTokenTtl())
+                        .reuseRefreshTokens(false) // every refresh rotates; a replayed refresh token is refused
                         .authorizationCodeTimeToLive(java.time.Duration.ofMinutes(2))
                         .build())
                 .build();
-        return new InMemoryRegisteredClientRepository(storefront);
+        return new InMemoryRegisteredClientRepository(bff);
+    }
+
+    /** Before Spring Security: unsigned requests never reach a session, form or token endpoint. */
+    @Bean
+    org.springframework.boot.web.servlet.FilterRegistrationBean<GatewayGuardFilter> gatewayGuard(AuthProperties props) {
+        var gateway = props.gateway();
+        var filter = new GatewayGuardFilter(gateway == null ? "" : gateway.secret(), gateway != null && gateway.allowUnguarded(),
+                // health probes, and the public signing keys resource services verify tokens with
+                java.util.Set.of("/healthz", "/readyz", "/oauth2/jwks"), java.time.Clock.systemUTC());
+        var registration = new org.springframework.boot.web.servlet.FilterRegistrationBean<>(filter);
+        registration.setOrder(org.springframework.core.Ordered.HIGHEST_PRECEDENCE);
+        registration.addUrlPatterns("/*");
+        return registration;
     }
 
     /** Authorizations (codes, issued tokens) survive restarts and are shared across replicas. */
@@ -146,19 +161,5 @@ public class SecurityConfig {
     @Bean
     PasswordEncoder passwordEncoder() {
         return PasswordEncoderFactories.createDelegatingPasswordEncoder(); // bcrypt by default
-    }
-
-    @Bean
-    CorsConfigurationSource corsConfigurationSource(AuthProperties props) {
-        CorsConfiguration cors = new CorsConfiguration();
-        cors.setAllowedOrigins(props.corsAllowedOrigins());
-        cors.setAllowedMethods(List.of("GET", "POST", "OPTIONS"));
-        cors.setAllowedHeaders(List.of("Authorization", "Content-Type"));
-        cors.setMaxAge(3600L);
-        UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
-        for (String path : List.of("/oauth2/token", "/oauth2/jwks", "/userinfo", "/.well-known/**", "/api/auth/**")) {
-            source.registerCorsConfiguration(path, cors);
-        }
-        return source;
     }
 }

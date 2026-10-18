@@ -2,6 +2,7 @@ package io.babelbazaar.auth;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.httpBasic;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -36,7 +37,8 @@ import org.springframework.web.util.UriComponentsBuilder;
 @ActiveProfiles("test")
 class AuthFlowTest {
 
-    static final String REDIRECT = "http://localhost:3000/auth/callback";
+    static final String REDIRECT = "http://localhost:8080/auth/callback";
+    static final String CLIENT_SECRET = "test-bff-client-secret-0123456789abcdef";
 
     @Autowired MockMvc mvc;
     @Autowired JwtDecoder jwtDecoder;
@@ -50,7 +52,7 @@ class AuthFlowTest {
     MultiValueMap<String, String> authorizeParams(String verifier) throws Exception {
         MultiValueMap<String, String> p = new LinkedMultiValueMap<>();
         p.add("response_type", "code");
-        p.add("client_id", "storefront");
+        p.add("client_id", "bff");
         p.add("redirect_uri", REDIRECT);
         p.add("scope", "openid email");
         p.add("state", "xyz");
@@ -77,17 +79,51 @@ class AuthFlowTest {
         var query = UriComponentsBuilder.fromUriString(location).build().getQueryParams();
         assertThat(query.getFirst("state")).isEqualTo("xyz");
 
-        String body = mvc.perform(post("/oauth2/token").contentType(MediaType.APPLICATION_FORM_URLENCODED)
+        String body = mvc.perform(post("/oauth2/token").contentType(MediaType.APPLICATION_FORM_URLENCODED).with(httpBasic("bff", CLIENT_SECRET))
                         .param("grant_type", "authorization_code")
                         .param("code", query.getFirst("code"))
                         .param("redirect_uri", REDIRECT)
-                        .param("client_id", "storefront")
+                        .param("client_id", "bff")
                         .param("code_verifier", verifier))
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
         JsonNode tokens = json.readTree(body);
         assertThat(tokens.has("id_token")).isTrue();
+        lastTokens = tokens;
         return jwtDecoder.decode(tokens.get("access_token").asText());
+    }
+
+    JsonNode lastTokens;
+
+    @Test
+    void tokenEndpointRequiresTheBffClientSecret() throws Exception {
+        String verifier = UUID.randomUUID() + "-" + UUID.randomUUID();
+        String location = mvc.perform(authorize(authorizeParams(verifier)).with(user("customer@shop.test")))
+                .andReturn().getResponse().getRedirectedUrl();
+        String code = UriComponentsBuilder.fromUriString(location).build().getQueryParams().getFirst("code");
+        mvc.perform(post("/oauth2/token").contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                        .with(httpBasic("bff", "wrong-secret-wrong-secret-wrong-secret"))
+                        .param("grant_type", "authorization_code").param("code", code)
+                        .param("redirect_uri", REDIRECT).param("code_verifier", verifier))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void refreshTokensRotateAndCannotBeReused() throws Exception {
+        accessTokenFor("customer@shop.test");
+        String refresh = lastTokens.get("refresh_token").asText();
+        var refreshRequest = (java.util.function.Supplier<org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder>)
+                () -> post("/oauth2/token").contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                        .with(httpBasic("bff", CLIENT_SECRET))
+                        .param("grant_type", "refresh_token").param("refresh_token", refresh);
+
+        String body = mvc.perform(refreshRequest.get()).andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        JsonNode rotated = json.readTree(body);
+        assertThat(rotated.get("refresh_token").asText()).isNotEqualTo(refresh);
+        assertThat(jwtDecoder.decode(rotated.get("access_token").asText()).getClaimAsStringList("roles"))
+                .containsExactly("customer");
+
+        mvc.perform(refreshRequest.get()).andExpect(status().isBadRequest()); // the old one is spent
     }
 
     @Test
@@ -118,7 +154,7 @@ class AuthFlowTest {
         assertThat(token.getClaimAsString("email")).isEqualTo("owner@shop.test");
         assertThat(token.getIssuer().toString()).isEqualTo("http://issuer.test");
         assertThat(token.getHeaders().get("alg")).isEqualTo("RS256");
-        assertThat(token.getAudience()).containsExactly("storefront");
+        assertThat(token.getAudience()).containsExactly("bff");
     }
 
     @Test
@@ -137,9 +173,9 @@ class AuthFlowTest {
         String code = UriComponentsBuilder.fromUriString(location).build().getQueryParams().getFirst("code");
 
         java.util.function.Function<String, org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder>
-                exchange = v -> post("/oauth2/token").contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                exchange = v -> post("/oauth2/token").contentType(MediaType.APPLICATION_FORM_URLENCODED).with(httpBasic("bff", CLIENT_SECRET))
                 .param("grant_type", "authorization_code").param("code", code)
-                .param("redirect_uri", REDIRECT).param("client_id", "storefront").param("code_verifier", v);
+                .param("redirect_uri", REDIRECT).param("client_id", "bff").param("code_verifier", v);
 
         mvc.perform(exchange.apply("wrong-verifier-wrong-verifier-wrong-verifier-xx"))
                 .andExpect(status().isBadRequest());

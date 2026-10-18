@@ -1,0 +1,750 @@
+{
+ "schemas": {
+  "problem": {
+   "type": "type",
+   "title": "title",
+   "status": "status",
+   "detail": "detail",
+   "trace_id": "trace_id",
+   "errors": {
+    "raw": true
+   },
+   "current_version": "current_version",
+   "available": "available",
+   "requested": "requested",
+   "product_id": "product_id"
+  },
+  "category_ref": {
+   "slug": "slug",
+   "name": "name"
+  },
+  "category_node": {
+   "slug": "slug",
+   "name": "name",
+   "children": {
+    "list": "category_node"
+   }
+  },
+  "category_tree": {
+   "items": {
+    "list": "category_node"
+   }
+  },
+  "image_public": {
+   "url": "url",
+   "position": "position"
+  },
+  "image_admin": {
+   "key": "key",
+   "url": "url",
+   "position": "position"
+  },
+  "product_public": {
+   "id": "id",
+   "sku": "sku",
+   "name": "name",
+   "description": "description",
+   "price_minor": "price_minor",
+   "currency": "currency",
+   "category": {
+    "schema": "category_ref"
+   },
+   "in_stock": "in_stock",
+   "images": {
+    "list": "image_public"
+   }
+  },
+  "product_page": {
+   "items": {
+    "list": "product_public"
+   },
+   "total": "total",
+   "page": "page",
+   "page_size": "page_size",
+   "pages": "pages"
+  },
+  "product_admin": {
+   "id": "id",
+   "sku": "sku",
+   "name": "name",
+   "description": "description",
+   "price_minor": "price_minor",
+   "currency": "currency",
+   "category": {
+    "schema": "category_ref"
+   },
+   "in_stock": "in_stock",
+   "images": {
+    "list": "image_admin"
+   },
+   "status": "status",
+   "version": "version",
+   "available_quantity": "available_quantity",
+   "created_at": "created_at",
+   "updated_at": "updated_at"
+  },
+  "product_admin_page": {
+   "items": {
+    "list": "product_admin"
+   },
+   "total": "total",
+   "page": "page",
+   "page_size": "page_size",
+   "pages": "pages"
+  },
+  "cart_line": {
+   "product_id": "product_id",
+   "sku": "sku",
+   "name": "name",
+   "quantity": "quantity",
+   "unit_price_minor": "unit_price_minor",
+   "currency": "currency",
+   "available": "available"
+  },
+  "cart": {
+   "items": {
+    "list": "cart_line"
+   },
+   "subtotal_minor": "subtotal_minor"
+  },
+  "order_line": {
+   "product_id": "product_id",
+   "sku": "sku",
+   "name": "name",
+   "quantity": "quantity",
+   "unit_price_minor": "unit_price_minor"
+  },
+  "order": {
+   "id": "id",
+   "status": "status",
+   "total_minor": "total_minor",
+   "currency": "currency",
+   "created_at": "created_at",
+   "items": {
+    "list": "order_line"
+   }
+  },
+  "order_page": {
+   "items": {
+    "list": "order"
+   },
+   "total": "total",
+   "page": "page",
+   "page_size": "page_size",
+   "pages": "pages"
+  },
+  "order_admin": {
+   "id": "id",
+   "status": "status",
+   "total_minor": "total_minor",
+   "currency": "currency",
+   "created_at": "created_at",
+   "items": {
+    "list": "order_line"
+   },
+   "customer_id": "customer_id"
+  },
+  "order_admin_page": {
+   "items": {
+    "list": "order_admin"
+   },
+   "total": "total",
+   "page": "page",
+   "page_size": "page_size",
+   "pages": "pages"
+  },
+  "adjustment": {
+   "id": "id",
+   "product_id": "product_id",
+   "delta": "delta",
+   "resulting_quantity": "resulting_quantity",
+   "reason": "reason",
+   "created_at": "created_at"
+  },
+  "adjustment_page": {
+   "items": {
+    "list": "adjustment"
+   },
+   "total": "total",
+   "page": "page",
+   "page_size": "page_size",
+   "pages": "pages"
+  },
+  "low_stock": {
+   "product_id": "product_id",
+   "sku": "sku",
+   "name": "name",
+   "available_quantity": "available_quantity"
+  },
+  "system_status": {
+   "outbox_pending": "outbox_pending",
+   "outbox_oldest_pending_at": "outbox_oldest_pending_at"
+  },
+  "dashboard": {
+   "recent_orders": {
+    "list": "order"
+   },
+   "low_stock": {
+    "list": "low_stock"
+   },
+   "system": {
+    "schema": "system_status"
+   }
+  },
+  "registered": {
+   "id": "id",
+   "email": "email"
+  },
+  "recommendation": {
+   "product_id": "product_id",
+   "sku": "sku",
+   "name": "name",
+   "price_minor": "price_minor",
+   "currency": "currency"
+  },
+  "recommendations": {
+   "items": {
+    "list": "recommendation"
+   },
+   "strategy": "strategy",
+   "degraded": "degraded"
+  }
+ },
+ "endpoints": [
+  {
+   "name": "catalog.list",
+   "method": "GET",
+   "path": "/api/catalog/products",
+   "service": "catalog",
+   "upstream": "/api/catalog/products",
+   "auth": "public",
+   "query": {
+    "category": {
+     "type": "slug",
+     "max": 80
+    },
+    "q": {
+     "type": "string",
+     "max": 100
+    },
+    "min_price": {
+     "type": "int",
+     "min": 0
+    },
+    "max_price": {
+     "type": "int",
+     "min": 0
+    },
+    "page": {
+     "type": "int",
+     "min": 1,
+     "max": 10000
+    },
+    "page_size": {
+     "type": "int",
+     "min": 1,
+     "max": 100
+    }
+   },
+   "response": "product_page"
+  },
+  {
+   "name": "catalog.search",
+   "method": "GET",
+   "path": "/api/catalog/search",
+   "service": "catalog",
+   "upstream": "/api/catalog/products",
+   "auth": "public",
+   "query": {
+    "category": {
+     "type": "slug",
+     "max": 80
+    },
+    "q": {
+     "type": "string",
+     "max": 100
+    },
+    "min_price": {
+     "type": "int",
+     "min": 0
+    },
+    "max_price": {
+     "type": "int",
+     "min": 0
+    },
+    "page": {
+     "type": "int",
+     "min": 1,
+     "max": 10000
+    },
+    "page_size": {
+     "type": "int",
+     "min": 1,
+     "max": 100
+    }
+   },
+   "response": "product_page"
+  },
+  {
+   "name": "catalog.get",
+   "method": "GET",
+   "path": "/api/catalog/products/{id}",
+   "service": "catalog",
+   "upstream": "/api/catalog/products/{id}",
+   "auth": "public",
+   "response": "product_public"
+  },
+  {
+   "name": "catalog.categories",
+   "method": "GET",
+   "path": "/api/catalog/categories",
+   "service": "catalog",
+   "upstream": "/api/catalog/categories",
+   "auth": "public",
+   "response": "category_tree"
+  },
+  {
+   "name": "recommendations",
+   "method": "GET",
+   "path": "/api/recommendations",
+   "service": "intelligence",
+   "upstream": "/api/intelligence/recommendations",
+   "auth": "public",
+   "query": {
+    "product_id": {
+     "type": "uuid"
+    },
+    "limit": {
+     "type": "int",
+     "min": 1,
+     "max": 20
+    }
+   },
+   "response": "recommendations",
+   "timeout_ms": 800,
+   "degrade": {
+    "status": 200,
+    "body": {
+     "items": [],
+     "strategy": "none",
+     "degraded": true
+    }
+   }
+  },
+  {
+   "name": "auth.register",
+   "method": "POST",
+   "path": "/api/auth/register",
+   "service": "auth",
+   "upstream": "/api/auth/register",
+   "auth": "public",
+   "body": {
+    "email": {
+     "type": "email",
+     "max": 254,
+     "required": true
+    },
+    "password": {
+     "type": "string",
+     "min": 12,
+     "max": 128,
+     "required": true
+    }
+   },
+   "response": "registered",
+   "limit": "register"
+  },
+  {
+   "name": "cart.get",
+   "method": "GET",
+   "path": "/api/cart",
+   "service": "commerce",
+   "upstream": "/api/commerce/cart",
+   "auth": "customer",
+   "response": "cart"
+  },
+  {
+   "name": "cart.put",
+   "method": "PUT",
+   "path": "/api/cart",
+   "service": "commerce",
+   "upstream": "/api/commerce/cart",
+   "auth": "customer",
+   "body": {
+    "items": {
+     "type": "list",
+     "max": 50,
+     "required": true,
+     "item": {
+      "product_id": {
+       "type": "uuid",
+       "required": true
+      },
+      "quantity": {
+       "type": "int",
+       "min": 1,
+       "max": 1000,
+       "required": true
+      }
+     }
+    }
+   },
+   "response": "cart"
+  },
+  {
+   "name": "checkout",
+   "method": "POST",
+   "path": "/api/checkout",
+   "service": "commerce",
+   "upstream": "/api/commerce/checkout",
+   "auth": "customer",
+   "body": {
+    "items": {
+     "type": "list",
+     "max": 50,
+     "required": true,
+     "item": {
+      "product_id": {
+       "type": "uuid",
+       "required": true
+      },
+      "quantity": {
+       "type": "int",
+       "min": 1,
+       "max": 1000,
+       "required": true
+      }
+     }
+    }
+   },
+   "response": "order",
+   "request_headers": [
+    "Idempotency-Key"
+   ],
+   "response_headers": [
+    "Idempotent-Replayed"
+   ],
+   "limit": "checkout",
+   "timeout_ms": 10000
+  },
+  {
+   "name": "orders.list",
+   "method": "GET",
+   "path": "/api/orders",
+   "service": "commerce",
+   "upstream": "/api/commerce/orders",
+   "auth": "customer",
+   "query": {
+    "page": {
+     "type": "int",
+     "min": 1,
+     "max": 10000
+    },
+    "page_size": {
+     "type": "int",
+     "min": 1,
+     "max": 100
+    }
+   },
+   "response": "order_page"
+  },
+  {
+   "name": "orders.get",
+   "method": "GET",
+   "path": "/api/orders/{id}",
+   "service": "commerce",
+   "upstream": "/api/commerce/orders/{id}",
+   "auth": "customer",
+   "response": "order"
+  },
+  {
+   "name": "admin.products.list",
+   "method": "GET",
+   "path": "/api/admin/products",
+   "service": "commerce",
+   "upstream": "/api/commerce/admin/products",
+   "auth": "shop_owner",
+   "query": {
+    "status": {
+     "type": "string",
+     "enum": [
+      "draft",
+      "active",
+      "archived"
+     ]
+    },
+    "category": {
+     "type": "slug",
+     "max": 80
+    },
+    "q": {
+     "type": "string",
+     "max": 100
+    },
+    "page": {
+     "type": "int",
+     "min": 1,
+     "max": 10000
+    },
+    "page_size": {
+     "type": "int",
+     "min": 1,
+     "max": 100
+    }
+   },
+   "response": "product_admin_page"
+  },
+  {
+   "name": "admin.products.create",
+   "method": "POST",
+   "path": "/api/admin/products",
+   "service": "commerce",
+   "upstream": "/api/commerce/admin/products",
+   "auth": "shop_owner",
+   "body": {
+    "name": {
+     "type": "string",
+     "min": 1,
+     "max": 200,
+     "required": true
+    },
+    "description": {
+     "type": "string",
+     "max": 20000
+    },
+    "price_minor": {
+     "type": "int",
+     "min": 0,
+     "max": 1000000000000,
+     "required": true
+    },
+    "currency": {
+     "type": "string",
+     "min": 3,
+     "max": 3
+    },
+    "category": {
+     "type": "slug",
+     "max": 80,
+     "required": true
+    },
+    "category_name": {
+     "type": "string",
+     "max": 120
+    },
+    "status": {
+     "type": "string",
+     "enum": [
+      "draft",
+      "active"
+     ]
+    },
+    "image_keys": {
+     "type": "strings",
+     "max": 8,
+     "of": {
+      "type": "image_key"
+     }
+    },
+    "sku": {
+     "type": "sku",
+     "required": true
+    },
+    "initial_stock": {
+     "type": "int",
+     "min": 0,
+     "max": 1000000000
+    }
+   },
+   "response": "product_admin",
+   "response_headers": [
+    "ETag"
+   ]
+  },
+  {
+   "name": "admin.products.get",
+   "method": "GET",
+   "path": "/api/admin/products/{id}",
+   "service": "commerce",
+   "upstream": "/api/commerce/admin/products/{id}",
+   "auth": "shop_owner",
+   "response": "product_admin",
+   "response_headers": [
+    "ETag"
+   ]
+  },
+  {
+   "name": "admin.products.edit",
+   "method": "PATCH",
+   "path": "/api/admin/products/{id}",
+   "service": "commerce",
+   "upstream": "/api/commerce/admin/products/{id}",
+   "auth": "shop_owner",
+   "body": {
+    "name": {
+     "type": "string",
+     "min": 1,
+     "max": 200
+    },
+    "description": {
+     "type": "string",
+     "max": 20000
+    },
+    "price_minor": {
+     "type": "int",
+     "min": 0,
+     "max": 1000000000000
+    },
+    "currency": {
+     "type": "string",
+     "min": 3,
+     "max": 3
+    },
+    "category": {
+     "type": "slug",
+     "max": 80
+    },
+    "category_name": {
+     "type": "string",
+     "max": 120
+    },
+    "status": {
+     "type": "string",
+     "enum": [
+      "draft",
+      "active"
+     ]
+    },
+    "image_keys": {
+     "type": "strings",
+     "max": 8,
+     "of": {
+      "type": "image_key"
+     }
+    }
+   },
+   "response": "product_admin",
+   "request_headers": [
+    "If-Match"
+   ],
+   "response_headers": [
+    "ETag"
+   ]
+  },
+  {
+   "name": "admin.products.remove",
+   "method": "DELETE",
+   "path": "/api/admin/products/{id}",
+   "service": "commerce",
+   "upstream": "/api/commerce/admin/products/{id}",
+   "auth": "shop_owner",
+   "query": {
+    "permanent": {
+     "type": "bool"
+    }
+   },
+   "response": "product_admin",
+   "response_headers": [
+    "ETag"
+   ]
+  },
+  {
+   "name": "admin.products.restore",
+   "method": "POST",
+   "path": "/api/admin/products/{id}/restore",
+   "service": "commerce",
+   "upstream": "/api/commerce/admin/products/{id}/restore",
+   "auth": "shop_owner",
+   "response": "product_admin",
+   "response_headers": [
+    "ETag"
+   ]
+  },
+  {
+   "name": "admin.inventory.adjust",
+   "method": "POST",
+   "path": "/api/admin/inventory/{id}/adjust",
+   "service": "commerce",
+   "upstream": "/api/commerce/admin/inventory/{id}/adjust",
+   "auth": "shop_owner",
+   "body": {
+    "delta": {
+     "type": "int",
+     "min": -1000000000,
+     "max": 1000000000,
+     "required": true
+    },
+    "reason": {
+     "type": "string",
+     "min": 1,
+     "max": 200,
+     "required": true
+    }
+   },
+   "response": "adjustment"
+  },
+  {
+   "name": "admin.inventory.history",
+   "method": "GET",
+   "path": "/api/admin/inventory/{id}/adjustments",
+   "service": "commerce",
+   "upstream": "/api/commerce/admin/inventory/{id}/adjustments",
+   "auth": "shop_owner",
+   "query": {
+    "page": {
+     "type": "int",
+     "min": 1,
+     "max": 10000
+    },
+    "page_size": {
+     "type": "int",
+     "min": 1,
+     "max": 100
+    }
+   },
+   "response": "adjustment_page"
+  },
+  {
+   "name": "admin.orders.list",
+   "method": "GET",
+   "path": "/api/admin/orders",
+   "service": "commerce",
+   "upstream": "/api/commerce/admin/orders",
+   "auth": "shop_owner",
+   "query": {
+    "status": {
+     "type": "string",
+     "enum": [
+      "pending_payment",
+      "paid",
+      "payment_failed",
+      "expired",
+      "cancelled",
+      "fulfilled",
+      "refunded"
+     ]
+    },
+    "page": {
+     "type": "int",
+     "min": 1,
+     "max": 10000
+    },
+    "page_size": {
+     "type": "int",
+     "min": 1,
+     "max": 100
+    }
+   },
+   "response": "order_admin_page"
+  },
+  {
+   "name": "admin.dashboard",
+   "method": "GET",
+   "path": "/api/admin/dashboard",
+   "service": "commerce",
+   "upstream": "/api/commerce/admin/dashboard",
+   "auth": "shop_owner",
+   "response": "dashboard"
+  }
+ ]
+}

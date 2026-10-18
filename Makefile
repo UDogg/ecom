@@ -5,7 +5,7 @@ RUN     := $(CORE) run --rm --no-deps commerce-core
 SERVICE ?= commerce-core
 ROLE    ?= owner
 
-.PHONY: help env up up-full down reset migrate seed logs test test-local test-auth test-async token dev-token \
+.PHONY: help env up up-full down reset migrate seed logs test test-local test-auth test-async test-go api dev-token \
         shell worker-status dlq-replay scenario-c
 
 help: ## Show available targets
@@ -37,7 +37,7 @@ logs: ## Tail logs (SERVICE=commerce-core)
 
 test: env ## Run the commerce-core test suite against the Compose Postgres
 	$(CORE) up -d postgres
-	$(CORE) run --rm -v $(CURDIR)/docs/contracts/events:/contracts:ro -e CONTRACTS_DIR=/contracts commerce-core pytest
+	$(CORE) run --rm -v $(CURDIR)/docs/contracts:/contracts:ro -e CONTRACTS_DIR=/contracts/events commerce-core pytest
 
 test-local: ## Run commerce-core tests natively (needs Postgres on localhost; see services/commerce-core/README.md)
 	cd services/commerce-core && pytest
@@ -49,8 +49,12 @@ test-async: ## Run outbox-publisher and worker tests natively (Postgres and Rabb
 	cd services/outbox-publisher && pytest
 	cd services/worker && pytest
 
-token: ## Sign in through auth-service and print an access token (ROLE=owner|customer)
-	@python3 scripts/login.py --role $(if $(filter shop_owner owner,$(ROLE)),owner,customer)
+test-go: ## Run the Go BFF and catalog-reader tests (catalog DB tests need CATALOG_TEST_DATABASE_URL)
+	cd services/bff && go vet ./... && go test ./...
+	cd services/catalog-reader && go vet ./... && go test ./...
+
+api: ## Call the BFF as the seeded user: make api ROLE=owner CALL="GET /api/admin/dashboard"
+	@python3 scripts/bff.py --role $(if $(filter shop_owner owner,$(ROLE)),owner,customer) $(CALL)
 
 dev-token: ## Print an HS256 dev token (only if JWT_DEV_HS256_SECRET is set)
 	@$(RUN) python manage.py dev_token --role $(if $(filter owner shop_owner,$(ROLE)),shop_owner,customer)

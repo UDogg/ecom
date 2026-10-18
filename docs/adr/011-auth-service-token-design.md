@@ -1,6 +1,8 @@
 # ADR 011: auth-service token design
 
-**Status:** Accepted (Phase 4 slice, built alongside Phase 3)
+**Status:** Accepted (Phase 4 slice, built alongside Phase 3). Points 1 and 6
+are amended by ADR 012: the only client is now the BFF (confidential,
+PKCE, rotating refresh tokens), and the issuer is the BFF's origin.
 
 ## Decisions
 

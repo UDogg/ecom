@@ -7,7 +7,7 @@
 | | |
 |---|---|
 | **Type** | Architecture showcase + proof of concept |
-| **Status** | In progress: Phases 1 to 3 built, plus `auth-service` sign-in; see [Implementation Roadmap](#22-implementation-roadmap) |
+| **Status** | In progress: Phases 1 to 3 built, plus a Go BFF with every core service gated ([ADR 012](docs/adr/012-bff-and-gated-core.md)); see [Implementation Roadmap](#22-implementation-roadmap) |
 | **Runs on** | Docker Compose, free and open-source components only |
 | **Shop owner can** | Sign in to an admin panel, add products (with images), edit them, adjust stock, and remove them |
 | **Live demo** | GitHub Pages, with the whole architecture simulated in the browser (see [section 24](#24-github-pages-demo-mode)) |
@@ -121,6 +121,14 @@ Each claim requires qualification and, where applicable, empirical testing.
 ---
 
 ## 3. Architecture at a Glance
+
+> **As built:** the `gateway` below is the **Go BFF** (`services/bff`). It is
+> the only service with a public port, it keeps every token server-side, it
+> enforces the API contract, and it signs every call. Each core service
+> answers anything unsigned with an empty 403. This model is adopted from
+> Ensuretech; see [ADR 012](docs/adr/012-bff-and-gated-core.md),
+> [request signing](docs/request-signing.md) and
+> [core lockdown](docs/core-lockdown.md).
 
 ```mermaid
 flowchart TB
@@ -285,7 +293,7 @@ make reset       # stop and wipe all volumes (clean slate)
 | Storefront | http://localhost:3000 |
 | **Admin panel** | http://localhost:3000/admin |
 | API gateway | http://localhost:8080 |
-| Auth service (OIDC discovery) | http://localhost:8081/.well-known/openid-configuration |
+| Sign in (through the BFF) | http://localhost:8080/auth/login |
 | Commerce API docs (OpenAPI) | http://localhost:8080/api/commerce/docs |
 | Catalog reader health | http://localhost:8082/healthz |
 | Intelligence API docs | http://localhost:8001/docs |
@@ -1274,7 +1282,7 @@ Point native processes at `localhost` datastores by using the host-mapped ports 
 
 Begin with a small but realistic workflow, **not** a large collection of services. Add Spring Boot, FastAPI, or Go only where a specific requirement justifies the complexity.
 
-> **What runs today:** `make up` starts PostgreSQL (with per-service roles), `auth-service` (sign-in on :8081), `commerce-core` (API on :8000), RabbitMQ, `outbox-publisher`, `worker`, Mailpit (:8025), a one-shot migrator, and the reservation expirer. `make seed`, `make token ROLE=owner` (real OIDC sign-in), `make test`, `make worker-status`, `make dlq-replay`, and `make scenario-c` work. The admin and customer APIs are on `http://localhost:8000` until the gateway and web app land. Targets in [section 21](#21-development-workflow) that are not in the `Makefile` yet belong to later phases. Event consumers use plain AMQP rather than Celery tasks; see [ADR 010](docs/adr/010-event-consumers-use-plain-amqp.md).
+> **What runs today:** `make up` starts the **Go BFF on :8080, the only public port**. Behind it, on internal networks with no host route, run `auth-service` (Spring), `commerce-core` (Django), `catalog-reader` (Go) and `intelligence` (FastAPI); each refuses unsigned requests. Also running: PostgreSQL (per-service roles), RabbitMQ, `outbox-publisher`, `worker`, Mailpit (:8025), a one-shot migrator and the reservation expirer. `make seed`, `make api ROLE=owner CALL="GET /api/admin/dashboard"` (signs in through the BFF), `make test`, `make test-go`, `make worker-status`, `make dlq-replay` and `make scenario-c` work. The web app has not landed yet. Targets in [section 21](#21-development-workflow) that are not in the `Makefile` yet belong to later phases. Event consumers use plain AMQP rather than Celery tasks; see [ADR 010](docs/adr/010-event-consumers-use-plain-amqp.md).
 
 ### Phase 1: Baseline
 - [x] Domain model and core invariants
@@ -1302,10 +1310,13 @@ Begin with a small but realistic workflow, **not** a large collection of service
 
 ### Phase 4: Specialized services
 - [ ] Next.js storefront and admin panel against the commerce API
-- [ ] Go/Gin `catalog-reader` for a measured read workload
-- [ ] FastAPI `intelligence` and `payments-sim`
+- [x] Go `catalog-reader` (standard `net/http` and pgx rather than Gin; SELECT-only role on two views). Not yet: Redis cache, benchmark
+- [x] Go BFF in front of every service, core services gated by signed requests ([ADR 012](docs/adr/012-bff-and-gated-core.md))
+- [x] FastAPI `intelligence` (recommendations, degrades gracefully)
+- [ ] FastAPI `payments-sim`
 - [x] Spring Boot `auth-service` and token validation (commerce-core validates via cached JWKS; later services follow the same pattern)
-- [ ] Versioned API and event contracts
+- [x] Versioned event contracts (`docs/contracts/events`), the BFF API contract, and the cross-language signing vectors
+- [ ] OpenAPI documents for the public API
 
 **Exit:** each added service demonstrates a measurable benefit or a required security or isolation property.
 
@@ -1598,6 +1609,7 @@ Initial decisions (full text in `docs/adr/`):
 | 008 | Rust deferred | No measured need; avoid adding variables before evaluating the initial design |
 | 009 | Pages demo simulates services in-browser (Service Worker, WASM, Workers) behind the same API contract | Free public showcase; one frontend for demo and live modes |
 | [010](docs/adr/010-event-consumers-use-plain-amqp.md) | Event consumers use plain AMQP, not Celery tasks | Events are a language-neutral contract; Celery's task protocol is Python RPC |
+| [012](docs/adr/012-bff-and-gated-core.md) | A Go BFF is the only entry point; every core service refuses unsigned requests (adopted from Ensuretech) | Two independent proofs on every call: origin (HMAC signature) and user (JWT) |
 | [011](docs/adr/011-auth-service-token-design.md) | Token design: PKCE only, `sub` = account UUID, persisted signing key, JWKS cache that survives auth outages | Existing sessions survive auth-service restarts and outages |
 
 ### Rust (future evaluation)

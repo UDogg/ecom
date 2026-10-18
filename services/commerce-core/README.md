@@ -18,6 +18,7 @@ the fallback contract for `catalog-reader`.
 | Transactional outbox | `outbox/` | `emit()` refuses to run outside a transaction; relay uses `SKIP LOCKED`, at-least-once |
 | Local JWT validation | `common/auth.py` | RS256 via cached JWKS from auth-service; keeps the last good keys through an auth outage; HS256 dev tokens only when `JWT_DEV_HS256_SECRET` is set |
 | Problem-details errors | `common/errors.py` | `trace_id` taken from `traceparent` |
+| Gateway guard | `common/gateway.py` | first middleware; unsigned requests get an empty 403 with zero DB queries; refuses to boot without `GATEWAY_SECRET` |
 | `catalog_public` view | `catalog/migrations/0002_*` | the only relation the `catalog_reader` role can read |
 
 Events leave through `services/outbox-publisher` (to RabbitMQ) and are
@@ -49,13 +50,10 @@ key, adjustments race to zero, and checkout races permanent delete.
 
 ```bash
 make up && make seed
-OWNER=$(make -s token ROLE=owner)    # real sign-in through auth-service
-
-curl -s -X POST localhost:8000/api/commerce/admin/products \
-  -H "Authorization: Bearer $OWNER" -H 'Content-Type: application/json' \
-  -d '{"sku":"MUG-100","name":"Mug","price_minor":1299,"category":"kitchen","initial_stock":5,"status":"active"}'
+python3 scripts/bff.py --role owner POST /api/admin/products \
+  '{"sku":"MUG-100","name":"Mug","price_minor":1299,"category":"kitchen","initial_stock":5,"status":"active"}'
 ```
 
-Until the gateway exists, commerce-core is reachable directly on
-`http://localhost:8000` (routes already carry the `/api/commerce` and
-`/api/catalog` prefixes the gateway will forward unchanged).
+commerce-core has no host port and refuses unsigned requests, so you reach
+it through the BFF: `python3 scripts/bff.py --role owner GET /api/admin/dashboard`.
+The public paths are mapped in `services/bff/internal/contract/contract.json`.

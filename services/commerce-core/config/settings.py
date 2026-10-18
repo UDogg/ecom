@@ -38,6 +38,8 @@ INSTALLED_APPS = [
 ]
 
 MIDDLEWARE = [
+    # First, before anything parses the request: only the BFF gets in.
+    "common.gateway.GatewayGuardMiddleware",
     "django.middleware.security.SecurityMiddleware",
     "django.middleware.common.CommonMiddleware",
 ]
@@ -82,11 +84,18 @@ REST_FRAMEWORK = {
 }
 
 # --------------------------------------------------------------------------
+# Gateway guard (docs/request-signing.md). Fail closed: no secret, no start.
+# --------------------------------------------------------------------------
+GATEWAY_SECRET = env("GATEWAY_SECRET", "")
+GATEWAY_ALLOW_UNGUARDED = env_bool("GATEWAY_ALLOW_UNGUARDED", False)
+GATEWAY_OPEN_PATHS = ("/healthz", "/readyz")  # container probes only; they reveal nothing
+
+# --------------------------------------------------------------------------
 # Auth: tokens are issued by auth-service and validated here, locally.
 # --------------------------------------------------------------------------
 # Production path: RS256 tokens verified against the auth-service JWKS.
 JWT_JWKS_URL = env("INTERNAL_AUTH_JWKS_URL", "")
-JWT_ISSUER = env("PUBLIC_AUTH_ISSUER_URL", "http://localhost:8081")
+JWT_ISSUER = env("PUBLIC_AUTH_ISSUER_URL", "http://localhost:8080")  # the BFF origin (ADR 012)
 JWT_AUDIENCE = env("JWT_AUDIENCE", "") or None
 # Dev/test path: HS256 tokens signed with a shared secret. Only honoured when
 # set; used until auth-service exists and by the test suite.
