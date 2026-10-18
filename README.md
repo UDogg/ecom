@@ -18,6 +18,7 @@
 ```bash
 ./run.sh                         # everything, end to end: checks, secrets, build, start, seed → http://localhost:8080
 ./run.sh test | scenario | bench # the suites, the broker-outage scenario, the benchmark
+./run.sh stress                  # the gamified stress arena: thousands of shoppers + a red team at the gate
 AWS_REGION=eu-west-1 deploy/aws/deploy.sh   # one Graviton instance with HTTPS, about $19 a month
 ```
 
@@ -26,6 +27,7 @@ AWS_REGION=eu-west-1 deploy/aws/deploy.sh   # one Graviton instance with HTTPS, 
 | The storefront and admin | [`web/`](web/README.md), served by the BFF |
 | The BFF and its route table | [`services/bff`](services/bff/README.md) |
 | Speed, footprint, vertical scaling | [`docs/performance.md`](docs/performance.md) |
+| Load and attack demo (gamified) | [`stress/`](stress/README.md), [`docs/stress-test.md`](docs/stress-test.md) |
 | Deploying and operating on AWS, cost | [`docs/aws.md`](docs/aws.md) |
 | Break-glass and service accounts | [`docs/break-glass.md`](docs/break-glass.md) |
 | Keeping dependencies current | [`docs/dependency-updates.md`](docs/dependency-updates.md) |

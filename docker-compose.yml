@@ -365,6 +365,25 @@ services:
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
 
+  # The stress arena's red team (stress/redteam.py). It sits ON the internal `app`
+  # network, right next to the core services, and tries to reach them without the BFF.
+  # It is given NO GATEWAY_SECRET on purpose: that is the attacker's situation, and
+  # every unsigned, forged, expired and fake-privileged request it sends must be
+  # refused. Started on demand by stress/arena.py ("./run.sh stress"); never by `up`.
+  redteam:
+    image: python:3.14-slim
+    profiles: ["stress"]
+    entrypoint: ["python", "/stress/redteam.py"]
+    environment:
+      ARENA_DURATION: ${ARENA_DURATION:-45}
+      ARENA_RED_INTENSITY: ${ARENA_RED_INTENSITY:-24}
+    volumes:
+      - ./stress:/stress:ro
+    networks: [app]
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+
 networks:
   edge: {}                  # the BFF's public side
   app:                      # BFF to core services
