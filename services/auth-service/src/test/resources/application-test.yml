@@ -1,0 +1,26 @@
+spring:
+  datasource:
+    url: ${AUTH_TEST_DB_URL:jdbc:postgresql://localhost:5432/auth_test?currentSchema=identity}
+    username: ${AUTH_TEST_DB_USER:postgres}
+    password: ${AUTH_TEST_DB_PASSWORD:postgres}
+
+auth:
+  issuer: http://issuer.test
+  client-id: bff
+  client-secret: test-bff-client-secret-0123456789abcdef
+  redirect-uris: http://localhost:8080/auth/callback
+  gateway:
+    # The guard has its own suite (GatewayGuardTest); everywhere else MockMvc talks to the app directly.
+    allow-unguarded: true
+  signing-key-path: ${java.io.tmpdir}/babel-bazaar-auth-test-key.json
+  seed:
+    enabled: true
+    owner-email: Owner@Shop.Test
+    owner-password: test-owner-password
+    customer-email: customer@shop.test
+    customer-password: test-customer-password
+  service-accounts: ops=svc_testops01:ddad18508e01b26dceb275378a6e038f37d20dc8aa9d3d1f1d0c69a428f46424|2a795483f944060f58df67d01808067679845fe2e6c733600426fd99c4fb8445
+  break-glass:
+    password-sha256: 65ec941149f73faa147470de60c1da0fce8769ce6ac4af38e3b2d96c79cf11b1
+    minutes: 15
+    attempts-per-minute: 1000

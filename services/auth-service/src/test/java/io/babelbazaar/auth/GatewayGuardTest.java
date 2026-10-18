@@ -1,0 +1,133 @@
+package io.babelbazaar.auth;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.security.SecureRandom;
+import java.time.Instant;
+import java.util.HexFormat;
+import java.util.Set;
+
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+import org.junit.jupiter.api.Assumptions;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.http.MediaType;
+import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
+
+@SpringBootTest(properties = {"auth.gateway.secret=" + GatewayGuardTest.SECRET, "auth.gateway.allow-unguarded=false"})
+@AutoConfigureMockMvc
+@ActiveProfiles("test")
+class GatewayGuardTest {
+
+    static final String SECRET = "guard-test-secret-0123456789abcdef0123456789";
+    static final Path VECTORS = Path.of("../../docs/contracts/gateway-signing.vectors.json");
+
+    @Autowired MockMvc mvc;
+
+    static MockHttpServletRequestBuilder signed(MockHttpServletRequestBuilder request, String method, String path, String query) {
+        String ts = Long.toString(Instant.now().getEpochSecond());
+        byte[] raw = new byte[12];
+        new SecureRandom().nextBytes(raw);
+        String nonce = HexFormat.of().formatHex(raw);
+        return request.header("X-Gateway-Timestamp", ts).header("X-Gateway-Nonce", nonce)
+                .header("X-Gateway-Signature", GatewayGuardFilter.sign(SECRET.getBytes(StandardCharsets.UTF_8), ts, nonce,
+                        method, path, query, ""));
+    }
+
+    @Test
+    void matchesTheSharedCrossLanguageVectors() throws Exception {
+        Assumptions.assumeTrue(Files.exists(VECTORS), "shared vectors not available");
+        JsonNode data = new ObjectMapper().readTree(VECTORS.toFile());
+        byte[] secret = data.get("secret").asString().getBytes(StandardCharsets.UTF_8);
+        for (JsonNode v : data.get("vectors")) {
+            String[] a = {v.get("timestamp").asString(), v.get("nonce").asString(), v.get("method").asString(),
+                    v.get("path").asString(), v.get("query").asString(), v.get("authorization").asString()};
+            assertThat(GatewayGuardFilter.canonical(a[0], a[1], a[2], a[3], a[4], a[5])).as(v.get("name").asString())
+                    .isEqualTo(v.get("canonical").asString());
+            assertThat(GatewayGuardFilter.sign(secret, a[0], a[1], a[2], a[3], a[4], a[5])).as(v.get("name").asString())
+                    .isEqualTo(v.get("signature").asString());
+        }
+    }
+
+    @Test
+    void unsignedRequestsGetAnEmpty403BeforeSpringSecurity() throws Exception {
+        for (var request : new MockHttpServletRequestBuilder[] {
+                get("/.well-known/openid-configuration"), get("/login"), get("/oauth2/authorize"),
+                post("/oauth2/token"), post("/api/auth/register").contentType(MediaType.APPLICATION_JSON).content("{}")}) {
+            mvc.perform(request).andExpect(status().isForbidden()).andExpect(content().string(""));
+        }
+    }
+
+    @Test
+    void signedRequestsGetThrough() throws Exception {
+        mvc.perform(signed(get("/.well-known/openid-configuration"), "GET", "/.well-known/openid-configuration", ""))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void replayedSignatureIsRefused() throws Exception {
+        var request = signed(get("/.well-known/openid-configuration"), "GET", "/.well-known/openid-configuration", "");
+        mvc.perform(request).andExpect(status().isOk());
+        mvc.perform(request).andExpect(status().isForbidden());
+    }
+
+    @Test
+    void signatureIsBoundToThePathAndQuery() throws Exception {
+        mvc.perform(signed(get("/login"), "GET", "/.well-known/openid-configuration", "")).andExpect(status().isForbidden());
+        mvc.perform(signed(get("/login").queryParam("error", ""), "GET", "/login", "")).andExpect(status().isForbidden());
+    }
+
+    @Test
+    void healthAndPublicKeysStayOpen() throws Exception {
+        mvc.perform(get("/healthz")).andExpect(status().isOk());
+        mvc.perform(get("/oauth2/jwks")).andExpect(status().isOk());
+    }
+
+    @Autowired PrivilegedTokens privileged;
+    @Autowired UserAccounts users;
+
+    @Test
+    void serviceTokenDoorIsOpenAndSystemTokensPassTheGuard() throws Exception {
+        String body = mvc.perform(post("/api/auth/service-token").contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                        .param("grant_type", "client_credentials").param("client_id", PrivilegedAccessTest.CLIENT)
+                        .param("client_secret", PrivilegedAccessTest.SECRET))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        String system = new ObjectMapper().readTree(body).get("access_token").asString();
+        mvc.perform(get("/api/auth/ops/break-glass-grants").header("Authorization", "Bearer " + system))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void breakGlassTokensPassTheGuardButUserTokensDoNot() throws Exception {
+        var customer = users.findActiveById(SeedAccounts.CUSTOMER_ID).orElseThrow();
+        String bg = privileged.breakGlass(customer, "svc_x", "guard admission test", java.time.Duration.ofMinutes(1),
+                java.util.UUID.randomUUID()).token();
+        // Past the guard (a JSON refusal from the controller, not the guard's empty 403).
+        mvc.perform(get("/api/auth/ops/break-glass-grants").header("Authorization", "Bearer " + bg))
+                .andExpect(status().isForbidden()).andExpect(content().string("{\"error\":\"system_only\"}"));
+        // An ordinary signed-in user's token is not a way past the guard.
+        mvc.perform(get("/api/auth/ops/break-glass-grants").header("Authorization", "Bearer not-a-real-token"))
+                .andExpect(status().isForbidden()).andExpect(content().string(""));
+    }
+
+    @Test
+    void refusesToStartWithoutAProperSecret() {
+        assertThatThrownBy(() -> new GatewayGuardFilter("", false, Set.of(), java.time.Clock.systemUTC()))
+                .isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> new GatewayGuardFilter("too-short", false, Set.of(), java.time.Clock.systemUTC()))
+                .isInstanceOf(IllegalStateException.class);
+    }
+}

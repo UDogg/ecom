@@ -1,0 +1,208 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  Babel Bazaar on one Graviton instance: the whole stack in Docker Compose behind Caddy (HTTPS),
+  no SSH (Session Manager only), nightly database dumps to S3. Resize by changing InstanceType;
+  every service sizes itself from the new machine on the next start. See docs/aws.md.
+
+Parameters:
+  InstanceType:
+    Type: String
+    Default: t4g.small
+    AllowedValues: [t4g.small, t4g.medium, t4g.large, t4g.xlarge, t4g.2xlarge, m7g.large, m7g.xlarge, m7g.2xlarge, c7g.xlarge, c7g.2xlarge]
+    Description: Arm64 (Graviton) only. t4g.small is the cheapest that runs the stack; move up when the dashboards say so.
+  DomainName:
+    Type: String
+    Default: ""
+    Description: >-
+      Public host name (point its DNS A record at the output IP). Empty: <elastic-ip>.sslip.io, a free name
+      that resolves to the IP, so HTTPS works with no DNS setup.
+  AcmeEmail:
+    Type: String
+    Default: ""
+    Description: Optional e-mail for Let's Encrypt expiry notices.
+  RepositoryUrl:
+    Type: String
+    Default: https://github.com/UDogg/ecom.git
+  RepositoryRef:
+    Type: String
+    Default: main
+    Description: Branch or tag to deploy.
+  DataVolumeGiB:
+    Type: Number
+    Default: 20
+    MinValue: 10
+    MaxValue: 1000
+    Description: >-
+      The data volume (Postgres, RabbitMQ, Docker images, the secrets in .env). It is separate from the
+      instance, so replacing the instance (a new AMI, a different type family) keeps everything. Grow it any
+      time; never shrink it.
+  BackupRetentionDays:
+    Type: Number
+    Default: 14
+    MinValue: 1
+    MaxValue: 365
+  LatestAmi:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-arm64
+    Description: Amazon Linux 2023, arm64; resolved at deploy time, so new stacks start patched.
+
+Conditions:
+  HasDomain: !Not [!Equals [!Ref DomainName, ""]]
+
+
+Resources:
+  Backups:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault: { SSEAlgorithm: AES256 }
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      OwnershipControls:
+        Rules: [{ ObjectOwnership: BucketOwnerEnforced }]
+      LifecycleConfiguration:
+        Rules:
+          - Id: expire-dumps
+            Status: Enabled
+            ExpirationInDays: !Ref BackupRetentionDays
+            AbortIncompleteMultipartUpload: { DaysAfterInitiation: 1 }
+
+  BackupsTlsOnly:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref Backups
+      PolicyDocument:
+        Statement:
+          - Sid: DenyPlainHttp
+            Effect: Deny
+            Principal: "*"
+            Action: "s3:*"
+            Resource: [!GetAtt Backups.Arn, !Sub "${Backups.Arn}/*"]
+            Condition: { Bool: { "aws:SecureTransport": "false" } }
+
+  Role:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal: { Service: ec2.amazonaws.com }
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore   # Session Manager instead of SSH
+      Policies:
+        - PolicyName: write-backups
+          PolicyDocument:
+            Statement:
+              - Effect: Allow
+                Action: [s3:PutObject]
+                Resource: !Sub "${Backups.Arn}/*"
+              - Effect: Allow
+                Action: [s3:ListBucket]
+                Resource: !GetAtt Backups.Arn
+        - PolicyName: attach-own-data-volume
+          PolicyDocument:
+            Statement:
+              - Effect: Allow
+                Action: [ec2:AttachVolume]
+                Resource:
+                  - !Sub "arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:volume/${Data}"
+                  - !Sub "arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:instance/*"
+                Condition:
+                  StringEquals: { "aws:ResourceTag/aws:cloudformation:stack-name": !Ref "AWS::StackName" }
+              - Effect: Allow
+                Action: [ec2:DescribeVolumes]
+                Resource: "*"
+
+  Profile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles: [!Ref Role]
+
+  Web:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: HTTP and HTTPS only. No SSH; use Session Manager.
+      SecurityGroupIngress:
+        - { IpProtocol: tcp, FromPort: 80, ToPort: 80, CidrIp: 0.0.0.0/0, Description: "HTTP (redirects to HTTPS; ACME)" }
+        - { IpProtocol: tcp, FromPort: 443, ToPort: 443, CidrIp: 0.0.0.0/0, Description: HTTPS }
+        - { IpProtocol: udp, FromPort: 443, ToPort: 443, CidrIp: 0.0.0.0/0, Description: HTTP/3 }
+        - { IpProtocol: tcp, FromPort: 80, ToPort: 80, CidrIpv6: "::/0" }
+        - { IpProtocol: tcp, FromPort: 443, ToPort: 443, CidrIpv6: "::/0" }
+
+  Address:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+
+  # Survives the instance: a stack update that brings a new AMI replaces the instance, not the data.
+  # The instance attaches it itself at boot (bootstrap.sh), waiting while a replaced instance still
+  # holds it, which a CloudFormation-managed attachment cannot do.
+  Data:
+    Type: AWS::EC2::Volume
+    DeletionPolicy: Snapshot
+    UpdateReplacePolicy: Snapshot
+    Properties:
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      Size: !Ref DataVolumeGiB
+      VolumeType: gp3
+      Encrypted: true
+      Tags:
+        - { Key: Name, Value: !Sub "${AWS::StackName}-data" }
+
+  Host:
+    Type: AWS::EC2::Instance
+    Properties:
+      AvailabilityZone: !Select [0, !GetAZs ""]   # the data volume's zone
+      ImageId: !Ref LatestAmi
+      InstanceType: !Ref InstanceType
+      IamInstanceProfile: !Ref Profile
+      SecurityGroupIds: [!GetAtt Web.GroupId]
+      MetadataOptions:
+        HttpTokens: required          # IMDSv2 only
+        HttpPutResponseHopLimit: 1    # containers cannot reach the instance's credentials
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs: { VolumeType: gp3, VolumeSize: 16, Encrypted: true, DeleteOnTermination: true }   # the OS only
+      Tags:
+        - { Key: Name, Value: !Sub "${AWS::StackName}" }
+      UserData:
+        Fn::Base64: !Sub
+          - |
+            #!/bin/bash
+            # Everything else lives in the repository (deploy/aws/bootstrap.sh), so it is reviewed like code.
+            set -euxo pipefail
+            dnf install -y git
+            rm -rf /tmp/bb && git clone --depth 1 --branch "${RepositoryRef}" "${RepositoryUrl}" /tmp/bb
+            REPO_URL="${RepositoryUrl}" REPO_REF="${RepositoryRef}" DATA_VOLUME="${Data}" \
+              SITE_ADDRESS="${Site}" ACME_EMAIL="${AcmeEmail}" BACKUP_BUCKET="${Backups}" \
+              bash /tmp/bb/deploy/aws/bootstrap.sh 2>&1 | tee -a /var/log/babel-bazaar-bootstrap.log
+          - Site: !If [HasDomain, !Ref DomainName, !Sub "${Address.PublicIp}.sslip.io"]
+
+  AddressAssociation:
+    Type: AWS::EC2::EIPAssociation
+    Properties:
+      AllocationId: !GetAtt Address.AllocationId
+      InstanceId: !Ref Host
+
+Outputs:
+  Url:
+    Description: The shop (HTTPS is ready a minute or two after the first build finishes)
+    Value: !Sub
+      - "https://${Site}"
+      - Site: !If [HasDomain, !Ref DomainName, !Sub "${Address.PublicIp}.sslip.io"]
+  PublicIp:
+    Value: !GetAtt Address.PublicIp
+  Shell:
+    Description: A shell on the host, no SSH or open port needed
+    Value: !Sub "aws ssm start-session --target ${Host} --region ${AWS::Region}"
+  BootstrapLog:
+    Value: /var/log/babel-bazaar-bootstrap.log
+  BackupBucket:
+    Value: !Ref Backups

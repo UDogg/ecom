@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Babel Bazaar · a fast, locked-down polyglot shop</title>
+<meta name="description" content="A complete online shop in Go, Python and Java behind one BFF: 13,000 catalog requests a second on four cores, every core call signed, about $19 a month on AWS.">
+<link rel="icon" href="favicon.svg">
+<link rel="stylesheet" href="site.css">
+<style>
+  .d-box { fill: var(--card); stroke: var(--line); stroke-width: 1.5; }
+  .d-key { fill: color-mix(in srgb, var(--brand) 12%, var(--card)); stroke: var(--brand); stroke-width: 1.5; }
+  .d-data { fill: color-mix(in srgb, var(--accent) 12%, var(--card)); stroke: var(--accent); stroke-width: 1.5; }
+  .d-zone { fill: none; stroke: var(--ink-3); stroke-dasharray: 5 5; stroke-width: 1.2; }
+  .d-t { fill: var(--ink); font: 600 14px var(--font); }
+  .d-s { fill: var(--ink-3); font: 12px var(--font); }
+  .d-z { fill: var(--ink-3); font: 600 11px var(--font); letter-spacing: .1em; text-transform: uppercase; }
+  .d-line { stroke: var(--ink-3); stroke-width: 1.5; fill: none; marker-end: url(#arrow); }
+  .d-sign { stroke: var(--brand); stroke-width: 1.8; fill: none; marker-end: url(#arrow-b); }
+  .d-arrow { fill: var(--ink-3); } .d-arrow-b { fill: var(--brand); }
+</style>
+</head>
+<body>
+<header class="top">
+  <a class="brand" href="./"><span class="mark">B</span> Babel Bazaar</a>
+  <nav><a href="demo/">Demo</a><a href="docs/aws.html">Docs</a><a href="https://github.com/UDogg/ecom">GitHub</a></nav>
+</header>
+
+<div class="wrap">
+  <section class="hero">
+    <div>
+      <span class="eyebrow">Go · Python · Java · one BFF</span>
+      <h1>A whole shop, fast, locked down and cheap to run.</h1>
+      <p>Storefront, checkout with real stock reservations, payments, e-mails and a shop-owner back office, split into services in three languages behind one gateway that signs every call.</p>
+      <div class="cta">
+        <a class="btn primary" href="demo/">Try the live demo →</a>
+        <a class="btn" href="docs/aws.html">Deploy it on AWS</a>
+        <a class="btn" href="https://github.com/UDogg/ecom">Read the code</a>
+      </div>
+      <p class="small" style="margin-top:14px;font-size:.9rem;color:var(--ink-3)">The demo runs entirely in your browser with the same rules as the real stack: try a declined card, a slow bank, or sign in as the owner and refund an order.</p>
+    </div>
+    <a class="shot" href="demo/" aria-label="Open the demo">
+      <svg viewBox="0 0 560 380" role="img" aria-label="The storefront">
+        <rect width="560" height="380" fill="var(--paper)"/>
+        <rect width="560" height="44" fill="var(--card)"/><circle cx="26" cy="22" r="10" fill="#d4482b"/>
+        <rect x="48" y="15" width="96" height="14" rx="7" fill="var(--ink)" opacity=".85"/>
+        <rect x="170" y="11" width="230" height="22" rx="11" fill="var(--paper-2)"/>
+        <rect x="20" y="62" width="520" height="130" rx="18" fill="#f7d6c4"/>
+        <rect x="44" y="92" width="150" height="22" rx="4" fill="#1d1610" opacity=".85"/><rect x="44" y="120" width="110" height="22" rx="4" fill="#1d1610" opacity=".85"/>
+        <rect x="44" y="154" width="96" height="22" rx="11" fill="#17130f"/>
+        <rect x="330" y="78" width="88" height="88" rx="14" fill="#cfe9d8" transform="rotate(-6 374 122)"/>
+        <rect x="408" y="86" width="96" height="96" rx="14" fill="#d9d2f4" transform="rotate(5 456 134)"/>
+        <g fill="var(--card)" stroke="var(--line)">
+          <rect x="20" y="210" width="118" height="150" rx="12"/><rect x="154" y="210" width="118" height="150" rx="12"/>
+          <rect x="288" y="210" width="118" height="150" rx="12"/><rect x="422" y="210" width="118" height="150" rx="12"/>
+        </g>
+        <rect x="20" y="210" width="118" height="92" rx="12" fill="#f4c9b5"/><rect x="154" y="210" width="118" height="92" rx="12" fill="#c9e2f3"/>
+        <rect x="288" y="210" width="118" height="92" rx="12" fill="#d3ecc9"/><rect x="422" y="210" width="118" height="92" rx="12" fill="#f3dfb6"/>
+        <g fill="var(--ink-3)"><rect x="32" y="314" width="70" height="8" rx="4"/><rect x="166" y="314" width="80" height="8" rx="4"/><rect x="300" y="314" width="64" height="8" rx="4"/><rect x="434" y="314" width="76" height="8" rx="4"/></g>
+        <g fill="var(--ink)"><rect x="32" y="334" width="36" height="12" rx="3"/><rect x="166" y="334" width="36" height="12" rx="3"/><rect x="300" y="334" width="36" height="12" rx="3"/><rect x="434" y="334" width="36" height="12" rx="3"/></g>
+      </svg>
+    </a>
+  </section>
+
+  <div class="stats">
+    <div class="stat"><b>13k</b><span>catalog requests a second on 4 cores, p50 1.8 ms</span></div>
+    <div class="stat"><b>29 KB</b><span>JavaScript and CSS for the whole storefront</span></div>
+    <div class="stat"><b>0</b><span>core services reachable without a BFF signature</span></div>
+    <div class="stat"><b>~$19</b><span>a month on AWS, one Graviton instance; resize with one parameter</span></div>
+  </div>
+
+  <section>
+    <h2>How a request travels</h2>
+    <p class="lede">The browser only ever talks to the BFF. It holds the session, checks the role, validates every field against a route table compiled into it, and signs the call; each core service refuses anything it did not sign. Events leave through a transactional outbox, so nothing is lost when the broker is down.</p>
+    <div class="diagram">
+      <svg viewBox="0 0 980 360" role="img" aria-label="Browser to Caddy to the BFF, which signs calls to the core services; services use Postgres and RabbitMQ">
+        <defs>
+          <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="d-arrow" d="M0 0 10 5 0 10z"/></marker>
+          <marker id="arrow-b" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="d-arrow-b" d="M0 0 10 5 0 10z"/></marker>
+        </defs>
+        <rect class="d-zone" x="300" y="20" width="660" height="320" rx="16"/>
+        <text class="d-z" x="316" y="42">Private networks · no public ports</text>
+        <rect class="d-box" x="20" y="140" width="110" height="64" rx="12"/><text class="d-t" x="40" y="168">Browser</text><text class="d-s" x="40" y="188">cookie + CSRF</text>
+        <rect class="d-box" x="160" y="140" width="110" height="64" rx="12"/><text class="d-t" x="180" y="168">Caddy</text><text class="d-s" x="180" y="188">HTTPS, HTTP/3</text>
+        <rect class="d-key" x="320" y="120" width="150" height="104" rx="14"/><text class="d-t" x="340" y="150">BFF · Go</text>
+        <text class="d-s" x="340" y="170">sessions, OIDC client</text><text class="d-s" x="340" y="188">route table, shaping</text><text class="d-s" x="340" y="206">signs every call</text>
+        <rect class="d-box" x="540" y="56" width="180" height="50" rx="12"/><text class="d-t" x="556" y="78">auth · Spring Boot</text><text class="d-s" x="556" y="96">OIDC, JWT, break-glass</text>
+        <rect class="d-box" x="540" y="116" width="180" height="50" rx="12"/><text class="d-t" x="556" y="138">commerce · Django</text><text class="d-s" x="556" y="156">cart, checkout, orders</text>
+        <rect class="d-box" x="540" y="176" width="180" height="50" rx="12"/><text class="d-t" x="556" y="198">catalog · Go</text><text class="d-s" x="556" y="216">read-only, cached</text>
+        <rect class="d-box" x="540" y="236" width="180" height="50" rx="12"/><text class="d-t" x="556" y="258">intelligence · FastAPI</text><text class="d-s" x="556" y="276">recommendations</text>
+        <rect class="d-box" x="760" y="56" width="180" height="50" rx="12"/><text class="d-t" x="776" y="78">payments · FastAPI</text><text class="d-s" x="776" y="96">charges, webhooks</text>
+        <rect class="d-data" x="760" y="150" width="180" height="50" rx="12"/><text class="d-t" x="776" y="172">PostgreSQL</text><text class="d-s" x="776" y="190">one schema per service</text>
+        <rect class="d-data" x="760" y="220" width="180" height="50" rx="12"/><text class="d-t" x="776" y="242">RabbitMQ</text><text class="d-s" x="776" y="260">outbox → worker e-mails</text>
+        <path class="d-line" d="M130 172h28"/><path class="d-line" d="M270 172h48"/>
+        <path class="d-sign" d="M470 150 C505 150 505 81 538 81"/><path class="d-sign" d="M470 160 C505 160 505 141 538 141"/>
+        <path class="d-sign" d="M470 185 C505 185 505 201 538 201"/><path class="d-sign" d="M470 200 C505 200 505 261 538 261"/>
+        <path class="d-line" d="M720 141h20v34h18"/><path class="d-line" d="M720 201h38"/><path class="d-line" d="M720 141 C745 141 745 245 758 245"/>
+        <path class="d-line" d="M720 131 C745 131 745 81 758 81"/>
+        <text class="d-s" x="476" y="312" fill="var(--brand)">— signed (HMAC over method, path, query, token; 60 s, single use)</text>
+      </svg>
+    </div>
+  </section>
+
+  <section>
+    <h2>What makes it different</h2>
+    <div class="cards">
+      <div class="card"><h3>The API is code</h3><p>Every route the BFF serves is one line of Go: its fields, its role, its upstream path, its response schema. No catch-all proxy; anything else is a 404 before it reaches a service.</p></div>
+      <div class="card"><h3>Correct under failure</h3><p>Stock is reserved at checkout, payments are idempotent and reconciled, a capture for an expired order is refunded automatically, and events survive a broker outage.</p></div>
+      <div class="card"><h3>Break-glass, audited</h3><p>When the BFF is down, operators get a 15-minute token acting as one named user, with a reason, recorded in an append-only table. Machine accounts get narrow SYSTEM tokens.</p></div>
+      <div class="card"><h3>Sized by the machine</h3><p>Postgres, the JVM, Go, gunicorn and uvicorn all size themselves from their container; the run script gives each a share of the instance. A bigger instance is used fully with no edits.</p></div>
+      <div class="card"><h3>Fast where it matters</h3><p>Public catalog reads are micro-cached and coalesced in the BFF; the storefront is precompressed in memory; queries have matching indexes; Java starts in 2.9 s from a class-data archive.</p></div>
+      <div class="card"><h3>Kept current</h3><p>Dependabot updates every ecosystem weekly, and CI fails on any deprecated API in Python, Go and Java, so updates stay small and boring.</p></div>
+    </div>
+  </section>
+
+  <section class="two">
+    <div>
+      <h2>Run it locally</h2>
+      <p class="lede">Docker and Python 3 are all it needs. One command checks the machine, generates secrets, builds, starts, waits for health and seeds the shop.</p>
+<pre>git clone https://github.com/UDogg/ecom && cd ecom
+./run.sh
+# → http://localhost:8080</pre>
+    </div>
+    <div>
+      <h2>Deploy it</h2>
+      <p class="lede">One CloudFormation stack: a Graviton instance, HTTPS by Caddy, no SSH, nightly backups to S3.</p>
+<pre>AWS_REGION=eu-west-1 deploy/aws/deploy.sh
+# → https://&lt;ip&gt;.sslip.io
+deploy/aws/deploy.sh InstanceType=t4g.medium   # resize</pre>
+    </div>
+  </section>
+
+  <footer>Babel Bazaar is a reference project. The demo's payments are simulated; no card is ever asked for.
+    · <a href="docs/performance.html">Performance</a> · <a href="docs/adr/012-bff-and-gated-core.html">Architecture</a> · <a href="docs/aws.html">AWS and cost</a></footer>
+</div>
+</body>
+</html>

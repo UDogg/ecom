@@ -1,0 +1,62 @@
+{
+  "version": "v1",
+  "secret": "test-vector-secret-0123456789abcdef0123456789",
+  "note": "Every gateway guard and the BFF signer must reproduce these exactly. Generated from a literal port of Ensuretech's config/gateway.py.",
+  "vectors": [
+    {
+      "name": "anonymous GET, no query",
+      "timestamp": "1792310400",
+      "nonce": "0f1e2d3c4b5a69788796a5b4",
+      "method": "GET",
+      "path": "/api/catalog/products",
+      "query": "",
+      "authorization": "",
+      "canonical": "v1\n1792310400\n0f1e2d3c4b5a69788796a5b4\nGET\n/api/catalog/products\n\ne3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "signature": "7b1b61fbe389c98bb13ccd1a8a4c546b866a75fdb97ce58f66da2ded39507adf"
+    },
+    {
+      "name": "GET with raw query string, signed exactly as sent",
+      "timestamp": "1792310400",
+      "nonce": "a1b2c3d4e5f60718293a4b5c",
+      "method": "GET",
+      "path": "/api/catalog/products",
+      "query": "category=kitchen&q=ceramic%20mug&page=2",
+      "authorization": "",
+      "canonical": "v1\n1792310400\na1b2c3d4e5f60718293a4b5c\nGET\n/api/catalog/products\ncategory=kitchen&q=ceramic%20mug&page=2\ne3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "signature": "1925ca7b2b39d59763c03def4e12669f696d8e12dfa966aac2bd71675428642c"
+    },
+    {
+      "name": "POST with a bearer token",
+      "timestamp": "1792310460",
+      "nonce": "ffeeddccbbaa998877665544",
+      "method": "POST",
+      "path": "/api/commerce/checkout",
+      "query": "",
+      "authorization": "Bearer eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJ4In0.c2ln",
+      "canonical": "v1\n1792310460\nffeeddccbbaa998877665544\nPOST\n/api/commerce/checkout\n\n6a22f586ad958bbaa18ea1a2c0ada4dff679292ac404d085a1a207ffd982a825",
+      "signature": "fa05df19904341c2cf8e900fc43b4ee702f7d0074d45d21363ff18a108f1dda7"
+    },
+    {
+      "name": "lower-case method is upper-cased before signing",
+      "timestamp": "1792310460",
+      "nonce": "112233445566778899aabbcc",
+      "method": "patch",
+      "path": "/api/commerce/admin/products/7520ad71-763d-470f-b7a4-754f1949f811",
+      "query": "",
+      "authorization": "Bearer abc",
+      "canonical": "v1\n1792310460\n112233445566778899aabbcc\nPATCH\n/api/commerce/admin/products/7520ad71-763d-470f-b7a4-754f1949f811\n\nc355dce96c1612880d11940ffdd9014d386c253e0c3652a6cd06a7226f7bd2b6",
+      "signature": "b208201d2e632cf40797479e9f2a7ea9f26041aef7117dc30d67363409f79cfa"
+    },
+    {
+      "name": "percent-encoded path is signed raw, not decoded",
+      "timestamp": "1792310520",
+      "nonce": "0123456789abcdef01234567",
+      "method": "GET",
+      "path": "/api/catalog/products/%2E%2E/orders",
+      "query": "",
+      "authorization": "",
+      "canonical": "v1\n1792310520\n0123456789abcdef01234567\nGET\n/api/catalog/products/%2E%2E/orders\n\ne3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "signature": "6b32a48404d115b12ce20c775c9380c2b78e4feec0bf840155ead1fcdb2cb2b4"
+    }
+  ]
+}

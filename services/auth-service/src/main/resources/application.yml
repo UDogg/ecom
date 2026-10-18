@@ -1,0 +1,53 @@
+server:
+  port: 8081
+  forward-headers-strategy: framework
+
+spring:
+  application:
+    name: auth-service
+  datasource:
+    url: jdbc:postgresql://${POSTGRES_HOST:postgres}:${POSTGRES_PORT:5432}/${POSTGRES_DB:shop}?currentSchema=identity
+    username: ${AUTH_DB_USER:auth}
+    password: ${AUTH_DB_PASSWORD:dev-only-auth}
+    hikari:
+      maximum-pool-size: ${AUTH_DB_POOL_SIZE:10}
+      connection-timeout: 5000
+  flyway:
+    schemas: identity
+    default-schema: identity
+  threads:
+    virtual:
+      enabled: true
+
+auth:
+  # The BFF's public origin: the browser only ever sees the BFF, which proxies the sign-in pages.
+  issuer: ${PUBLIC_AUTH_ISSUER_URL:http://localhost:8080}
+  client-id: ${OIDC_CLIENT_ID:bff}
+  client-secret: ${OIDC_CLIENT_SECRET:}
+  redirect-uris: ${OIDC_REDIRECT_URIS:http://localhost:8080/auth/callback}
+  access-token-ttl: ${ACCESS_TOKEN_TTL_SECONDS:600}s
+  refresh-token-ttl: ${REFRESH_TOKEN_TTL_SECONDS:28800}s
+  signing-key-path: ${AUTH_SIGNING_KEY_PATH:./var/signing-key.json}
+  # name=client_id:sha256(secret)[|sha256(secret)],...  (./run.sh generates one, `ops`)
+  service-accounts: ${SERVICE_ACCOUNTS:}
+  service-token-ttl: ${SERVICE_TOKEN_SECONDS:600}s
+  break-glass:
+    password-sha256: ${BREAK_GLASS_PASSWORD_SHA256:}
+    minutes: ${BREAK_GLASS_MINUTES:15}
+    attempts-per-minute: ${BREAK_GLASS_ATTEMPTS_PER_MINUTE:5}
+  gateway:
+    secret: ${GATEWAY_SECRET:}
+    allow-unguarded: ${GATEWAY_ALLOW_UNGUARDED:false}
+  seed:
+    enabled: ${AUTH_SEED_ENABLED:false}
+    owner-email: ${SEED_OWNER_EMAIL:}
+    owner-password: ${SEED_OWNER_PASSWORD:}
+    customer-email: ${SEED_CUSTOMER_EMAIL:}
+    customer-password: ${SEED_CUSTOMER_PASSWORD:}
+
+logging:
+  level:
+    root: ${LOG_LEVEL:info}
+  structured:
+    format:
+      console: ecs

@@ -1,0 +1,22 @@
+/* The sign-in page: the storefront's tokens (web/src/styles/global.css), nothing else. */
+:root { color-scheme: light dark; --ink: #17130f; --ink-3: #7a7067; --paper: #fbf8f3; --card: #fff; --line: #e7e0d5; --brand: #d4482b; --accent: #0f6b62; --bad: #b42318; --bad-soft: #fde4e1; }
+@media (prefers-color-scheme: dark) { :root { --ink: #f4efe8; --ink-3: #958b80; --paper: #14110e; --card: #211c17; --line: #322b24; --brand: #ef6a4c; --accent: #4fc1b2; --bad: #ff7b6e; --bad-soft: #3a1714; } }
+* { box-sizing: border-box; }
+body { margin: 0; min-height: 100dvh; display: grid; place-items: center; padding: 24px 16px; color: var(--ink); font: 16px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  background: radial-gradient(90% 70% at 0% 0%, color-mix(in srgb, var(--brand) 18%, var(--paper)), var(--paper) 60%), var(--paper); }
+main { width: min(420px, 100%); display: grid; gap: 18px; }
+a { color: var(--accent); font-weight: 600; text-decoration: none; }
+.brand { display: flex; align-items: center; gap: 10px; justify-self: center; color: var(--ink); font: 700 1.35rem ui-serif, Georgia, serif; }
+.mark { width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center; color: #fff; font-size: 1rem; background: conic-gradient(from 200deg, #d4482b, #b7791f, #0f6b62, #d4482b); }
+.card { display: grid; gap: 14px; padding: 28px; border-radius: 22px; background: var(--card); border: 1px solid var(--line); box-shadow: 0 24px 60px -18px rgb(23 19 15 / 35%); }
+h1 { margin: 0; font: 600 1.9rem/1.1 ui-serif, Georgia, serif; letter-spacing: -0.02em; }
+.lede { margin: 0; color: var(--ink-3); }
+label { display: grid; gap: 6px; font-size: .88rem; font-weight: 600; }
+input { font: inherit; color: inherit; min-height: 46px; padding: 10px 14px; border-radius: 10px; border: 1px solid var(--line); background: var(--paper); }
+input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 18%, transparent); }
+button { font: inherit; font-weight: 650; min-height: 50px; border: 0; border-radius: 999px; background: var(--brand); color: #fff; cursor: pointer; margin-top: 6px; }
+button:hover { filter: brightness(.94); }
+.notice { margin: 0; padding: 12px 14px; border-radius: 12px; background: color-mix(in srgb, var(--accent) 14%, var(--card)); color: var(--accent); font-size: .92rem; }
+.notice.bad { background: var(--bad-soft); color: var(--bad); }
+.small { margin: 0; text-align: center; font-size: .9rem; color: var(--ink-3); }
+.fine { margin: 0; text-align: center; font-size: .8rem; color: var(--ink-3); }

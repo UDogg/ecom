@@ -1,0 +1,82 @@
+/* The Pages site: the storefront's tokens (web/src/styles/global.css), light and dark. */
+:root {
+  color-scheme: light dark;
+  --ink: #17130f; --ink-2: #4a433b; --ink-3: #7a7067; --paper: #fbf8f3; --paper-2: #f3eee6; --card: #fff;
+  --line: #e7e0d5; --brand: #d4482b; --accent: #0f6b62; --gold: #b7791f;
+  --serif: ui-serif, "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+  --font: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --ink: #f4efe8; --ink-2: #c9c0b4; --ink-3: #958b80; --paper: #14110e; --paper-2: #1c1814; --card: #211c17; --line: #322b24; --brand: #ef6a4c; --accent: #4fc1b2; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--paper); color: var(--ink); font: 16px/1.6 var(--font); -webkit-font-smoothing: antialiased; }
+a { color: var(--accent); text-decoration: none; font-weight: 550; }
+a:hover { text-decoration: underline; }
+h1, h2, h3 { font-family: var(--serif); line-height: 1.15; letter-spacing: -0.02em; }
+
+.top { position: sticky; top: 0; z-index: 5; display: flex; align-items: center; gap: 24px; padding: 14px max(16px, calc((100% - 1180px) / 2));
+  background: color-mix(in srgb, var(--paper) 85%, transparent); backdrop-filter: blur(12px); border-bottom: 1px solid var(--line); }
+.top nav { margin-left: auto; display: flex; gap: 22px; }
+.top nav a { color: var(--ink-2); }
+.brand { display: flex; align-items: center; gap: 10px; color: var(--ink); font: 700 1.2rem var(--serif); }
+.mark { width: 30px; height: 30px; border-radius: 9px; display: grid; place-items: center; color: #fff; font-size: .95rem;
+  background: conic-gradient(from 200deg, #d4482b, #b7791f, #0f6b62, #d4482b); }
+
+.wrap { width: min(100% - 32px, 1180px); margin: 0 auto; }
+.hero { display: grid; grid-template-columns: 1.1fr 1fr; gap: 48px; align-items: center; padding: 72px 0 40px; }
+.hero h1 { font-size: clamp(2.4rem, 1.4rem + 3.6vw, 4.4rem); margin: 10px 0 18px; line-height: 1.02; }
+.hero p { font-size: 1.15rem; color: var(--ink-2); max-width: 36ch; margin: 0; }
+.eyebrow { text-transform: uppercase; letter-spacing: .14em; font-size: .75rem; font-weight: 700; color: var(--brand); }
+.cta { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 28px; }
+.btn { display: inline-flex; align-items: center; gap: 8px; min-height: 48px; padding: 0 22px; border-radius: 999px; font-weight: 650;
+  border: 1px solid var(--line); background: var(--card); color: var(--ink); }
+.btn:hover { text-decoration: none; border-color: var(--ink-3); }
+.btn.primary { background: var(--brand); color: #fff; border-color: transparent; box-shadow: 0 8px 20px -8px color-mix(in srgb, var(--brand) 70%, transparent); }
+.shot { border-radius: 22px; overflow: hidden; border: 1px solid var(--line); box-shadow: 0 30px 70px -25px rgb(23 19 15 / 45%); background: var(--card); }
+.shot svg { display: block; width: 100%; height: auto; }
+
+.stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin: 24px 0 8px; }
+.stat { padding: 20px; border-radius: 16px; background: var(--card); border: 1px solid var(--line); }
+.stat b { display: block; font: 700 2rem/1.1 var(--font); letter-spacing: -0.02em; color: var(--ink); }
+.stat span { color: var(--ink-3); font-size: .9rem; }
+section { padding: 48px 0 8px; }
+section > h2 { font-size: clamp(1.6rem, 1.2rem + 1.2vw, 2.2rem); margin: 0 0 8px; }
+section > p.lede { color: var(--ink-2); max-width: 70ch; margin: 0 0 24px; }
+.cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+.card { padding: 22px; border-radius: 16px; background: var(--card); border: 1px solid var(--line); }
+.card h3 { font-family: var(--font); font-size: 1.05rem; letter-spacing: 0; margin: 0 0 6px; }
+.card p { margin: 0; color: var(--ink-2); font-size: .95rem; }
+.diagram { border-radius: 18px; border: 1px solid var(--line); background: var(--card); padding: 18px; overflow-x: auto; }
+.diagram svg { display: block; min-width: 760px; width: 100%; height: auto; }
+pre, code { font-family: var(--mono); font-size: .9em; }
+pre { background: var(--paper-2); border: 1px solid var(--line); border-radius: 12px; padding: 16px 18px; overflow-x: auto; line-height: 1.5; }
+:not(pre) > code { background: var(--paper-2); padding: 1px 6px; border-radius: 6px; }
+.two { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+footer { margin-top: 64px; padding: 28px 0 40px; border-top: 1px solid var(--line); color: var(--ink-3); font-size: .9rem; }
+
+/* docs */
+.docs { display: grid; grid-template-columns: 260px 1fr; gap: 40px; width: min(100% - 32px, 1180px); margin: 0 auto; padding: 32px 0 64px; }
+.docs aside { position: sticky; top: 80px; align-self: start; font-size: .92rem; }
+.docs aside h4 { margin: 18px 0 6px; font-size: .74rem; text-transform: uppercase; letter-spacing: .12em; color: var(--ink-3); }
+.docs aside ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.docs aside a { display: block; padding: 6px 10px; border-radius: 8px; color: var(--ink-2); font-weight: 500; }
+.docs aside a[aria-current] { background: var(--ink); color: var(--paper); }
+.prose { min-width: 0; max-width: 80ch; }
+.prose h1 { font-size: 2.4rem; margin-top: 0; }
+.prose h2 { margin-top: 2em; }
+.prose table { border-collapse: collapse; width: 100%; font-size: .92rem; display: block; overflow-x: auto; }
+.prose th, .prose td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+.prose th { background: var(--paper-2); font-size: .8rem; text-transform: uppercase; letter-spacing: .06em; color: var(--ink-3); }
+.prose blockquote { margin: 0; padding: 4px 16px; border-left: 3px solid var(--brand); color: var(--ink-2); }
+.source { margin-top: 48px; font-size: .85rem; color: var(--ink-3); }
+
+@media (max-width: 900px) {
+  .hero, .two { grid-template-columns: 1fr; padding-top: 40px; }
+  .stats { grid-template-columns: repeat(2, 1fr); }
+  .cards { grid-template-columns: 1fr; }
+  .docs { grid-template-columns: 1fr; }
+  .docs aside { position: static; }
+  .top nav { gap: 14px; }
+}

@@ -1,0 +1,379 @@
+# Babel Bazaar local stack. Everything is free and runs on localhost.
+#
+# Sizing: no CPU caps (a service may use every core when the others are idle; cpu_shares says who
+# wins under contention: the request path first, background work last) and a memory ceiling per
+# service that ./run.sh derives from the machine's RAM (scripts/sizing.py). Each service sizes itself
+# from its ceiling, so a bigger instance is used fully without editing anything.
+#
+# Only the BFF has a port on the host (8080). Every core service sits on
+# internal networks with no route in from the host or out to the internet,
+# and refuses any request the BFF did not sign (docs/request-signing.md,
+# docs/core-lockdown.md). Postgres, RabbitMQ's UI and Mailpit keep loopback
+# ports as local developer tools, on a separate `ops` network.
+name: babel-bazaar
+
+x-commerce-env: &commerce-env
+  POSTGRES_HOST: postgres
+  POSTGRES_PORT: "5432"
+  POSTGRES_DB: ${POSTGRES_DB:-shop}
+  COMMERCE_DB_USER: commerce
+  COMMERCE_DB_PASSWORD: ${COMMERCE_DB_PASSWORD}
+  DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY}
+  DJANGO_DEBUG: ${DJANGO_DEBUG:-false}
+  DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:-localhost,127.0.0.1,commerce-core}
+  PUBLIC_AUTH_ISSUER_URL: ${PUBLIC_AUTH_ISSUER_URL}
+  PUBLIC_ASSET_BASE_URL: ${PUBLIC_ASSET_BASE_URL}
+  INTERNAL_AUTH_JWKS_URL: ${INTERNAL_AUTH_JWKS_URL:-http://auth-service:8081/oauth2/jwks}
+  JWT_AUDIENCE: ${OIDC_CLIENT_ID:-bff},core   # core: SYSTEM and break-glass tokens
+  COMMERCE_SERVICE_CLIENT_ID: ${COMMERCE_SERVICE_CLIENT_ID:-}      # its own service account, to call payments-sim
+  COMMERCE_SERVICE_CLIENT_SECRET: ${COMMERCE_SERVICE_CLIENT_SECRET:-}
+  GATEWAY_SECRET: ${GATEWAY_SECRET}
+  JWT_DEV_HS256_SECRET: ${JWT_DEV_HS256_SECRET:-}
+  RESERVATION_TTL_SECONDS: ${RESERVATION_TTL_SECONDS:-900}
+  IDEMPOTENCY_RETENTION_HOURS: ${IDEMPOTENCY_RETENTION_HOURS:-24}
+  LOG_LEVEL: ${LOG_LEVEL:-info}
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    # Tuned at start to the memory and CPUs it is given (db/tune/postgres.sh).
+    entrypoint: ["/tune/postgres.sh"]
+    profiles: ["core", "full"]
+    mem_limit: ${MEM_POSTGRES:-1G}   # ./run.sh sizes it from the machine (scripts/sizing.py)
+    cpu_shares: 1536
+    environment:
+      POSTGRES_USER: ${POSTGRES_SUPERUSER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_SUPERUSER_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-shop}
+      COMMERCE_DB_PASSWORD: ${COMMERCE_DB_PASSWORD}
+      CATALOG_READER_DB_PASSWORD: ${CATALOG_READER_DB_PASSWORD}
+      INTELLIGENCE_DB_PASSWORD: ${INTELLIGENCE_DB_PASSWORD}
+      AUTH_DB_PASSWORD: ${AUTH_DB_PASSWORD}
+      OUTBOX_PUBLISHER_DB_PASSWORD: ${OUTBOX_PUBLISHER_DB_PASSWORD}
+      WORKER_DB_PASSWORD: ${WORKER_DB_PASSWORD}
+      PAYMENTS_DB_PASSWORD: ${PAYMENTS_DB_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./db/init:/docker-entrypoint-initdb.d:ro
+      - ./db/tune:/tune:ro
+    ports: ["127.0.0.1:5432:5432"]   # developer tool; removed in deployment
+    networks: [data, ops]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  # One-shot: applies migrations so `up` alone yields a working schema.
+  commerce-migrate:
+    build:
+      context: ./services/commerce-core
+      target: prod
+    image: babel-bazaar-commerce-core-prod
+    profiles: ["core", "full"]
+    environment: *commerce-env
+    command: ["python", "manage.py", "migrate", "--noinput"]
+    depends_on:
+      postgres: { condition: service_healthy }
+    networks: [data]
+
+  commerce-core:
+    build:
+      context: ./services/commerce-core
+      target: dev
+    profiles: ["core", "full"]
+    mem_limit: ${MEM_COMMERCE:-1G}   # ./run.sh sizes it from the machine (scripts/sizing.py)
+    cpu_shares: 1024
+    environment: *commerce-env
+    depends_on:
+      commerce-migrate: { condition: service_completed_successfully }
+    networks: [app, data]           # no host port: reachable only from the BFF, signed
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/readyz', timeout=2)"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+  # Releases stock held by unpaid orders once their reservation TTL passes.
+  commerce-expirer:
+    image: babel-bazaar-commerce-core-prod
+    profiles: ["core", "full"]
+    mem_limit: ${MEM_EXPIRER:-256M}   # ./run.sh sizes it from the machine (scripts/sizing.py)
+    cpu_shares: 512
+    environment: *commerce-env
+    # Expire unpaid orders, reconcile payments, purge old idempotency keys.
+    command: ["python", "manage.py", "maintain", "--loop", "10"]
+    depends_on:
+      commerce-migrate: { condition: service_completed_successfully }
+    networks: [data]
+
+  rabbitmq:
+    image: rabbitmq:4.3-management-alpine
+    hostname: rabbitmq   # stable node name: the data directory survives re-creation
+    user: rabbitmq
+    profiles: ["core", "full"]
+    mem_limit: ${MEM_RABBITMQ:-512M}   # ./run.sh sizes it from the machine (scripts/sizing.py)
+    cpu_shares: 768
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-shop}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
+      # Deprecated since 4.x: the console reads live state instead (also saves memory and CPU).
+      RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS: -rabbitmq_management_agent disable_metrics_collector true
+    volumes:
+      - rabbitmq:/var/lib/rabbitmq
+    ports:
+      - "127.0.0.1:15672:15672"   # management UI, developer tool
+    networks: [data, ops]
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  mailpit:
+    image: axllent/mailpit:v1.31
+    profiles: ["core", "full"]
+    mem_limit: ${MEM_MAILPIT:-64M}   # ./run.sh sizes it from the machine (scripts/sizing.py)
+    cpu_shares: 256
+    ports:
+      - "127.0.0.1:8025:8025"     # inbox UI, developer tool
+    networks: [data, ops]
+
+  auth-service:
+    build:
+      context: ./services/auth-service
+    profiles: ["core", "full"]
+    mem_limit: ${MEM_AUTH:-768M}   # ./run.sh sizes it from the machine (scripts/sizing.py)
+    cpu_shares: 1024
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: ${POSTGRES_DB:-shop}
+      AUTH_DB_USER: auth
+      AUTH_DB_PASSWORD: ${AUTH_DB_PASSWORD}
+      PUBLIC_AUTH_ISSUER_URL: ${PUBLIC_AUTH_ISSUER_URL}
+      OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-bff}
+      OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET}
+      OIDC_REDIRECT_URIS: ${OIDC_REDIRECT_URIS}
+      ACCESS_TOKEN_TTL_SECONDS: ${ACCESS_TOKEN_TTL_SECONDS:-600}
+      REFRESH_TOKEN_TTL_SECONDS: ${REFRESH_TOKEN_TTL_SECONDS:-28800}
+      GATEWAY_SECRET: ${GATEWAY_SECRET}
+      SERVICE_ACCOUNTS: ${SERVICE_ACCOUNTS:-}
+      BREAK_GLASS_PASSWORD_SHA256: ${BREAK_GLASS_PASSWORD_SHA256:-}
+      BREAK_GLASS_MINUTES: ${BREAK_GLASS_MINUTES:-15}
+      AUTH_SEED_ENABLED: ${AUTH_SEED_ENABLED:-false}
+      SEED_OWNER_EMAIL: ${SEED_OWNER_EMAIL:-}
+      SEED_OWNER_PASSWORD: ${SEED_OWNER_PASSWORD:-}
+      SEED_CUSTOMER_EMAIL: ${SEED_CUSTOMER_EMAIL:-}
+      SEED_CUSTOMER_PASSWORD: ${SEED_CUSTOMER_PASSWORD:-}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    volumes:
+      - authkeys:/var/lib/auth
+    depends_on:
+      postgres: { condition: service_healthy }
+    networks: [app, data]           # no host port: the BFF proxies its sign-in pages
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8081/readyz"]
+      interval: 10s
+      timeout: 3s
+      start_period: 30s
+      retries: 10
+
+  outbox-publisher:
+    build:
+      context: ./services/outbox-publisher
+    profiles: ["core", "full"]
+    mem_limit: ${MEM_OUTBOX:-256M}   # ./run.sh sizes it from the machine (scripts/sizing.py)
+    cpu_shares: 768
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: ${POSTGRES_DB:-shop}
+      OUTBOX_PUBLISHER_DB_USER: outbox_publisher
+      OUTBOX_PUBLISHER_DB_PASSWORD: ${OUTBOX_PUBLISHER_DB_PASSWORD}
+      RABBITMQ_URL: ${RABBITMQ_URL}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    depends_on:
+      commerce-migrate: { condition: service_completed_successfully }
+      rabbitmq: { condition: service_healthy }
+    networks: [data]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8091/readyz', timeout=2)"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+  worker:
+    build:
+      context: ./services/worker
+    profiles: ["core", "full"]
+    mem_limit: ${MEM_WORKER:-256M}   # ./run.sh sizes it from the machine (scripts/sizing.py)
+    cpu_shares: 512
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: ${POSTGRES_DB:-shop}
+      WORKER_DB_USER: worker
+      WORKER_DB_PASSWORD: ${WORKER_DB_PASSWORD}
+      RABBITMQ_URL: ${RABBITMQ_URL}
+      SMTP_HOST: ${SMTP_HOST:-mailpit}
+      SMTP_PORT: ${SMTP_PORT:-1025}
+      MAIL_FROM: ${MAIL_FROM}
+      OWNER_ALERT_EMAIL: ${OWNER_ALERT_EMAIL}
+      PUBLIC_WEB_URL: ${PUBLIC_WEB_URL}
+      LOW_STOCK_THRESHOLD: ${LOW_STOCK_THRESHOLD:-5}
+      WORKER_RETRY_DELAYS_MS: ${WORKER_RETRY_DELAYS_MS:-5000,30000,120000}
+      WORKER_PREFETCH: ${WORKER_PREFETCH:-10}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    depends_on:
+      postgres: { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
+    networks: [data]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8090/readyz', timeout=2)"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+  bff:
+    build:
+      context: ./services/bff
+      additional_contexts:
+        web: ./web   # the storefront, built into the image (services/bff/Dockerfile)
+    profiles: ["core", "full"]
+    mem_limit: ${MEM_BFF:-256M}   # ./run.sh sizes it from the machine (scripts/sizing.py)
+    cpu_shares: 2048
+    environment:
+      PUBLIC_API_BASE_URL: ${PUBLIC_API_BASE_URL}
+      PUBLIC_AUTH_ISSUER_URL: ${PUBLIC_AUTH_ISSUER_URL}
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      GATEWAY_SECRET: ${GATEWAY_SECRET}
+      OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-bff}
+      OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET}
+      INTERNAL_AUTH_URL: http://auth-service:8081
+      INTERNAL_COMMERCE_URL: http://commerce-core:8000
+      INTERNAL_CATALOG_URL: http://catalog-reader:8082
+      INTERNAL_INTELLIGENCE_URL: http://intelligence:8001
+      RATE_AUTH_PER_MINUTE: ${RATE_AUTH_PER_MINUTE:-10}
+      RATE_DEFAULT_PER_MINUTE: ${RATE_DEFAULT_PER_MINUTE:-300}   # ./run.sh bench raises it so the limiter is not what gets measured
+      BFF_MICROCACHE: ${BFF_MICROCACHE:-on}
+    depends_on:
+      auth-service: { condition: service_healthy }
+      commerce-core: { condition: service_healthy }
+      catalog-reader: { condition: service_healthy }
+    ports: ["127.0.0.1:8080:8080"]  # the one public entry point
+    networks: [edge, app]
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    healthcheck:
+      test: ["CMD", "/bff", "healthcheck"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+  catalog-reader:
+    build:
+      context: ./services/catalog-reader
+    profiles: ["core", "full"]
+    mem_limit: ${MEM_CATALOG:-128M}   # ./run.sh sizes it from the machine (scripts/sizing.py)
+    cpu_shares: 1536
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_DB: ${POSTGRES_DB:-shop}
+      CATALOG_READER_DB_PASSWORD: ${CATALOG_READER_DB_PASSWORD}
+      PUBLIC_ASSET_BASE_URL: ${PUBLIC_ASSET_BASE_URL}
+      PUBLIC_AUTH_ISSUER_URL: ${PUBLIC_AUTH_ISSUER_URL}
+      INTERNAL_AUTH_JWKS_URL: http://auth-service:8081/oauth2/jwks
+      GATEWAY_SECRET: ${GATEWAY_SECRET}
+    depends_on:
+      commerce-migrate: { condition: service_completed_successfully }
+    networks: [app, data]
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    healthcheck:
+      test: ["CMD", "/catalog-reader", "healthcheck"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+  intelligence:
+    build:
+      context: ./services/intelligence
+    profiles: ["core", "full"]
+    mem_limit: ${MEM_INTELLIGENCE:-512M}   # ./run.sh sizes it from the machine (scripts/sizing.py)
+    cpu_shares: 1024
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_DB: ${POSTGRES_DB:-shop}
+      INTELLIGENCE_DB_PASSWORD: ${INTELLIGENCE_DB_PASSWORD}
+      MAX_CONCURRENT_INFERENCES: "4"
+      PUBLIC_AUTH_ISSUER_URL: ${PUBLIC_AUTH_ISSUER_URL}
+      INTERNAL_AUTH_JWKS_URL: http://auth-service:8081/oauth2/jwks
+      GATEWAY_SECRET: ${GATEWAY_SECRET}
+    depends_on:
+      commerce-migrate: { condition: service_completed_successfully }
+    networks: [app, data]
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/healthz', timeout=2)"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+  payments-sim:
+    build:
+      context: ./services/payments-sim
+    profiles: ["core", "full"]
+    mem_limit: ${MEM_PAYMENTS:-256M}   # ./run.sh sizes it from the machine (scripts/sizing.py)
+    cpu_shares: 768
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_DB: ${POSTGRES_DB:-shop}
+      PAYMENTS_DB_PASSWORD: ${PAYMENTS_DB_PASSWORD}
+      PAYMENTS_SERVICE_CLIENT_ID: ${PAYMENTS_SERVICE_CLIENT_ID:-}      # its own service account, for webhooks
+      PAYMENTS_SERVICE_CLIENT_SECRET: ${PAYMENTS_SERVICE_CLIENT_SECRET:-}
+      PUBLIC_AUTH_ISSUER_URL: ${PUBLIC_AUTH_ISSUER_URL}
+      GATEWAY_SECRET: ${GATEWAY_SECRET}
+      CHAOS_ENABLED: ${CHAOS_ENABLED:-false}
+    depends_on:
+      postgres: { condition: service_healthy }
+    networks: [app, data]
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8003/healthz', timeout=2)"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+  # The operator's way in when the BFF is down (docs/break-glass.md): Ensuretech's
+  # "VPN to the private network", as a throwaway container on the app network.
+  # It holds no secrets of its own; scripts/breakglass.sh passes them per run.
+  opsbox:
+    image: python:3.14-slim
+    profiles: ["ops"]
+    entrypoint: ["python", "/scripts/breakglass.py"]
+    volumes:
+      - ./scripts:/scripts:ro
+    networks: [app]
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+
+networks:
+  edge: {}                  # the BFF's public side
+  app:                      # BFF to core services
+    internal: true          # no host access, no internet egress
+  data:                     # services to datastores and the broker
+    internal: true
+  ops: {}                   # loopback developer tools only (psql, RabbitMQ UI, Mailpit)
+
+volumes:
+  pgdata: {}
+  rabbitmq: {}
+  authkeys: {}

@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://shop.local/contracts/events/envelope.v1.schema.json",
+  "title": "Event envelope",
+  "description": "Every message on the commerce.events exchange. The AMQP routing key is `<type>.v<version>` and message_id equals `id`. Consumers ignore unknown fields and dedupe by `id`.",
+  "type": "object",
+  "required": ["id", "type", "version", "occurred_at", "producer", "data"],
+  "properties": {
+    "id": {"type": "string", "format": "uuid"},
+    "type": {"type": "string", "pattern": "^[a-z]+(\\.[a-z_]+)+$"},
+    "version": {"type": "integer", "minimum": 1},
+    "occurred_at": {"type": "string", "format": "date-time"},
+    "producer": {"type": "string"},
+    "trace": {"type": "object", "properties": {"traceparent": {"type": "string"}}},
+    "data": {"type": "object"}
+  }
+}

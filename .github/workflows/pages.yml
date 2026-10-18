@@ -1,0 +1,70 @@
+name: Pages
+
+# The public site: landing page, docs, and the storefront demo (web/ with its in-browser backend).
+# Built on every pull request that touches it; deployed only from main.
+on:
+  push:
+    branches: [main]
+    paths: ["site/**", "docs/**", "web/**", ".github/workflows/pages.yml"]
+  pull_request:
+    paths: ["site/**", "docs/**", "web/**", ".github/workflows/pages.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pages-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: |
+            site/package-lock.json
+            web/package-lock.json
+      - name: Build the site (landing, docs, demo)
+        working-directory: site
+        run: npm ci --no-audit --no-fund && npm run build
+      - name: Every internal link resolves
+        run: |
+          python3 - <<'PY'
+          import pathlib, re, sys
+          bad = []
+          for f in pathlib.Path("_site").rglob("*.html"):
+              if f.parts[1] == "demo":
+                  continue
+              for href in re.findall(r'href="([^"#:]+)(?:#[^"]*)?"', f.read_text()):
+                  t = (f.parent / href).resolve()
+                  if t.is_dir():
+                      t = t / "index.html"
+                  if not t.exists():
+                      bad.append(f"{f}: {href}")
+          print("\n".join(bad) or "all links resolve")
+          sys.exit(1 if bad else 0)
+          PY
+      - uses: actions/upload-pages-artifact@v5
+        if: github.event_name != 'pull_request'
+        with:
+          path: _site
+
+  deploy:
+    if: github.event_name != 'pull_request'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/configure-pages@v6
+      - id: deployment
+        uses: actions/deploy-pages@v5

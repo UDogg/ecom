@@ -7,11 +7,30 @@
 | | |
 |---|---|
 | **Type** | Architecture showcase + proof of concept |
-| **Status** | Proposed (v2.0 of the design document) |
+| **Status** | Phases 1 to 3 built, plus a Go BFF with every core service gated ([ADR 012](docs/adr/012-bff-and-gated-core.md)), payments, the storefront and admin, and an AWS deployment; see [Implementation Roadmap](#22-implementation-roadmap) |
 | **Runs on** | Docker Compose, free and open-source components only |
 | **Shop owner can** | Sign in to an admin panel, add products (with images), edit them, adjust stock, and remove them |
-| **Live demo** | GitHub Pages, with the whole architecture simulated in the browser (see [section 24](#24-github-pages-demo-mode)) |
+| **Live demo** | GitHub Pages: the real storefront with an in-browser backend, plus the docs (`site/`, [section 24](#24-github-pages-demo-mode)) |
 | **Deploys by** | Changing environment variables (base URLs, secrets, hostnames), with no code changes |
+
+### Start here
+
+```bash
+./run.sh                         # everything, end to end: checks, secrets, build, start, seed → http://localhost:8080
+./run.sh test | scenario | bench # the suites, the broker-outage scenario, the benchmark
+AWS_REGION=eu-west-1 deploy/aws/deploy.sh   # one Graviton instance with HTTPS, about $19 a month
+```
+
+| | |
+|---|---|
+| The storefront and admin | [`web/`](web/README.md), served by the BFF |
+| The BFF and its route table | [`services/bff`](services/bff/README.md) |
+| Speed, footprint, vertical scaling | [`docs/performance.md`](docs/performance.md) |
+| Deploying and operating on AWS, cost | [`docs/aws.md`](docs/aws.md) |
+| Break-glass and service accounts | [`docs/break-glass.md`](docs/break-glass.md) |
+| Keeping dependencies current | [`docs/dependency-updates.md`](docs/dependency-updates.md) |
+
+The sections below are the original design document; where the build differs, the files above are current.
 
 ---
 
@@ -121,6 +140,14 @@ Each claim requires qualification and, where applicable, empirical testing.
 ---
 
 ## 3. Architecture at a Glance
+
+> **As built:** the `gateway` below is the **Go BFF** (`services/bff`). It is
+> the only service with a public port, it keeps every token server-side, it
+> enforces the API contract, and it signs every call. Each core service
+> answers anything unsigned with an empty 403. This model is adopted from
+> Ensuretech; see [ADR 012](docs/adr/012-bff-and-gated-core.md),
+> [request signing](docs/request-signing.md) and
+> [core lockdown](docs/core-lockdown.md).
 
 ```mermaid
 flowchart TB
@@ -246,54 +273,45 @@ The full stack is heavy. Profiles let you run only what you need.
 - Docker Desktop (or Docker Engine) with Compose v2.
 - 8 GB RAM free for the `full` profile; 4 GB is enough for `core`.
 - `make` (optional convenience wrapper).
-- Optional for running services outside containers: Java 21, Python 3.12, Go 1.22, Node.js 20.
+- Optional for running services outside containers: Java 21, Python 3.14, Go 1.27, Node.js 24.
 
 ### Run it
 
 ```bash
 git clone https://github.com/<you>/babel-bazaar.git
 cd babel-bazaar
-
-# 1. Create your local environment file (safe dev-only defaults)
-cp .env.example .env
-
-# 2. Start the core stack
-docker compose --profile core up --build -d
-
-# 3. Create tables, seed demo data, and create the shop owner account
-make migrate
-make seed
-
-# 4. Open the app
-open http://localhost:3000        # storefront
-open http://localhost:3000/admin  # shop owner admin panel
+./run.sh
 ```
 
-With `make`:
+That is all. `./run.sh` checks the machine, creates `.env` with **fresh random
+secrets** on first run (and `.env.private` for the operator secrets), builds
+the images, starts everything, waits until every service is healthy, loads
+the demo catalogue, and prints where everything is and how to sign in.
 
 ```bash
-make up          # core profile
-make up-full     # every profile
-make down        # stop everything
-make reset       # stop and wipe all volumes (clean slate)
+./run.sh status            # health of every container
+./run.sh logs bff          # follow one service
+./run.sh api --role owner GET /api/admin/dashboard     # call the BFF as the seeded owner
+./run.sh breakglass ...    # privileged access when the BFF is down (docs/break-glass.md)
+./run.sh test | scenario   # test suites; the broker-outage scenario
+./run.sh down | reset      # stop (keep data); delete everything
 ```
+
+The `Makefile` targets (`make up`, `make seed`, `make test`, ...) still work
+for finer control.
 
 ### Local URLs
 
+Only the BFF is published; every core service is on private networks.
+
 | What | URL |
 |---|---|
-| Storefront | http://localhost:3000 |
-| **Admin panel** | http://localhost:3000/admin |
-| API gateway | http://localhost:8080 |
-| Auth service (OIDC discovery) | http://localhost:8081/.well-known/openid-configuration |
-| Commerce API docs (OpenAPI) | http://localhost:8080/api/commerce/docs |
-| Catalog reader health | http://localhost:8082/healthz |
-| Intelligence API docs | http://localhost:8001/docs |
-| RabbitMQ management | http://localhost:15672 |
-| MinIO console | http://localhost:9001 |
-| Mailpit inbox | http://localhost:8025 |
-| Jaeger (observability profile) | http://localhost:16686 |
-| Grafana (observability profile) | http://localhost:3001 |
+| **Storefront** (served by the BFF) | http://localhost:8080 |
+| **Admin panel** (sign in as the owner) | http://localhost:8080/admin |
+| Sign in (through the BFF) | http://localhost:8080/auth/login |
+| API (through the BFF) | http://localhost:8080/api/... |
+| RabbitMQ management (developer tool) | http://localhost:15672 |
+| Mailpit inbox (developer tool) | http://localhost:8025 |
 
 ### Seeded dev accounts
 
@@ -333,14 +351,10 @@ Mixing them up is the most common source of bugs (especially OIDC issuer mismatc
 # ------------------------------------------------------------------
 # Public URLs (what the BROWSER sees). Change these when deploying.
 # ------------------------------------------------------------------
-PUBLIC_WEB_URL=http://localhost:3000
-PUBLIC_API_BASE_URL=http://localhost:8080
-PUBLIC_AUTH_ISSUER_URL=http://localhost:8081
+PUBLIC_API_BASE_URL=http://localhost:8080        # the BFF: storefront, API and sign-in on one origin
+PUBLIC_WEB_URL=${PUBLIC_API_BASE_URL}
+PUBLIC_AUTH_ISSUER_URL=${PUBLIC_API_BASE_URL}
 PUBLIC_ASSET_BASE_URL=http://localhost:9000/product-images
-
-# Next.js reads NEXT_PUBLIC_* at build time; keep them derived from the above
-NEXT_PUBLIC_API_BASE_URL=${PUBLIC_API_BASE_URL}
-NEXT_PUBLIC_AUTH_ISSUER_URL=${PUBLIC_AUTH_ISSUER_URL}
 
 # ------------------------------------------------------------------
 # Internal URLs (service to service). Usually unchanged in Compose.
@@ -412,8 +426,7 @@ LOG_LEVEL=info
 
 - **OIDC issuer:** the `iss` claim must equal `PUBLIC_AUTH_ISSUER_URL`, while services fetch keys from `INTERNAL_AUTH_JWKS_URL`. They differ in Docker, and that is intentional.
 - **Product image URLs:** the browser cannot reach `minio:9000`. Uploads use presigned URLs signed against `S3_PUBLIC_ENDPOINT_URL`.
-- **`NEXT_PUBLIC_*` variables** are baked into the frontend at build time. Changing them requires rebuilding `web`.
-- **CORS:** `CORS_ALLOWED_ORIGINS` must contain the exact public web origin, with scheme and port.
+- **One origin:** the BFF serves the storefront, the API and sign-in, so there is no CORS to configure. Changing `PUBLIC_API_BASE_URL` needs no frontend rebuild.
 - **Secrets:** `.env` is git-ignored. Only `.env.example` is committed, and it must contain placeholders only.
 
 ---
@@ -1274,41 +1287,49 @@ Point native processes at `localhost` datastores by using the host-mapped ports 
 
 Begin with a small but realistic workflow, **not** a large collection of services. Add Spring Boot, FastAPI, or Go only where a specific requirement justifies the complexity.
 
+> **What runs today:** `make up` starts the **Go BFF on :8080, the only public port**. Behind it, on internal networks with no host route, run `auth-service` (Spring), `commerce-core` (Django), `catalog-reader` (Go) and `intelligence` (FastAPI); each refuses unsigned requests. Also running: PostgreSQL (per-service roles), RabbitMQ, `outbox-publisher`, `worker`, Mailpit (:8025), a one-shot migrator and the reservation expirer. `make seed`, `make api ROLE=owner CALL="GET /api/admin/dashboard"` (signs in through the BFF), `make test`, `make test-go`, `make worker-status`, `make dlq-replay` and `make scenario-c` work. The web app has not landed yet. Targets in [section 21](#21-development-workflow) that are not in the `Makefile` yet belong to later phases. Event consumers use plain AMQP rather than Celery tasks; see [ADR 010](docs/adr/010-event-consumers-use-plain-amqp.md).
+
 ### Phase 1: Baseline
-- [ ] Domain model and core invariants
-- [ ] Baseline commerce API (Django monolith) with admin add/remove product
-- [ ] PostgreSQL schema and migration strategy
+- [x] Domain model and core invariants
+- [x] Baseline commerce API (Django monolith) with admin add/remove product (`services/commerce-core`)
+- [x] PostgreSQL schema and migration strategy (`commerce` schema, per-service roles in `db/init/`)
 - [ ] Representative load tests and initial cost/latency measurements
 
 **Exit:** baseline is correct and measurements are reproducible.
 
 ### Phase 2: Transactional core
-- [ ] Product and inventory operations, including archive and delete rules
-- [ ] Cart, checkout, order state machine
-- [ ] Inventory reservation, idempotent requests
-- [ ] Transactional outbox
+- [x] Product and inventory operations, including archive and delete rules
+- [x] Cart, checkout, order state machine (payment transitions arrive with `payments-sim`)
+- [x] Inventory reservation, idempotent requests
+- [x] Transactional outbox (relay to a log sink; RabbitMQ sink is Phase 3)
 
 **Exit:** concurrency and transaction tests pass.
 
 ### Phase 3: Asynchronous processing
-- [ ] RabbitMQ integration, worker processes
-- [ ] Retry and dead-letter policies, idempotent consumers
-- [ ] Recovery and reconciliation procedures
+- [x] RabbitMQ integration, worker processes (`services/outbox-publisher`, `services/worker`)
+- [x] Retry and dead-letter policies, idempotent consumers (TTL retry queues, DLQ + replay tool)
+- [x] Recovery procedures (`docs/runbooks/`, `make scenario-c`)
+- [ ] Payment reconciliation (needs `payments-sim`, Phase 4)
 
 **Exit:** broker and worker failure scenarios pass.
 
 ### Phase 4: Specialized services
 - [ ] Next.js storefront and admin panel against the commerce API
-- [ ] Go/Gin `catalog-reader` for a measured read workload
-- [ ] FastAPI `intelligence` and `payments-sim`
-- [ ] Spring Boot `auth-service` and token validation in every service
-- [ ] Versioned API and event contracts
+- [x] Go `catalog-reader` (standard `net/http` and pgx rather than Gin; SELECT-only role on two views). Not yet: Redis cache, benchmark
+- [x] Go BFF in front of every service, core services gated by signed requests ([ADR 012](docs/adr/012-bff-and-gated-core.md))
+- [x] FastAPI `intelligence` (recommendations, degrades gracefully)
+- [ ] FastAPI `payments-sim`
+- [x] Spring Boot `auth-service` and token validation (commerce-core validates via cached JWKS; later services follow the same pattern)
+- [x] Versioned event contracts (`docs/contracts/events`), the BFF API contract, and the cross-language signing vectors
+- [ ] OpenAPI documents for the public API
 
 **Exit:** each added service demonstrates a measurable benefit or a required security or isolation property.
 
 ### Phase 5: Fault injection and security
 - [ ] Failure-injection suite and service-permission matrix
 - [ ] Recovery-time measurements
+- [x] Privileged access like Ensuretech's: service accounts (SYSTEM tokens) and audited break-glass ([docs/break-glass.md](docs/break-glass.md))
+- [x] Dependabot for every ecosystem, CI that fails on deprecated APIs ([docs/dependency-updates.md](docs/dependency-updates.md))
 - [ ] Security findings and remediation plan
 - [ ] Cross-service observability dashboards
 
@@ -1339,6 +1360,11 @@ Begin with a small but realistic workflow, **not** a large collection of service
 ---
 
 ## 24. GitHub Pages Demo Mode
+
+> **As built:** the demo is the real storefront (`web/`) built with `npm run build:demo`, which swaps the
+> HTTP client for an in-browser backend implementing the same API and rules (`web/src/api/demo.ts`). The
+> Pages site (`site/`, deployed by `.github/workflows/pages.yml`) adds a landing page and the docs. The rest
+> of this section is the original design and is kept for reference.
 
 GitHub Pages serves **static files only**: no servers, no containers, no databases, no custom response headers. The full stack cannot run there. What *can* run there is a **browser-hosted simulation** of the architecture, where each "service" is a Web Worker or WebAssembly module and the browser plays the role of the network. The same frontend then switches to the real backend with a single environment variable.
 
@@ -1594,6 +1620,9 @@ Initial decisions (full text in `docs/adr/`):
 | 007 | Payments simulator instead of a hosted provider | Free, deterministic chaos testing on localhost |
 | 008 | Rust deferred | No measured need; avoid adding variables before evaluating the initial design |
 | 009 | Pages demo simulates services in-browser (Service Worker, WASM, Workers) behind the same API contract | Free public showcase; one frontend for demo and live modes |
+| [010](docs/adr/010-event-consumers-use-plain-amqp.md) | Event consumers use plain AMQP, not Celery tasks | Events are a language-neutral contract; Celery's task protocol is Python RPC |
+| [012](docs/adr/012-bff-and-gated-core.md) | A Go BFF is the only entry point; every core service refuses unsigned requests, except SYSTEM and audited break-glass tokens (adopted from Ensuretech) | Two independent proofs on every call: origin (HMAC signature) and user (JWT); a controlled way in when the BFF is down |
+| [011](docs/adr/011-auth-service-token-design.md) | Token design: PKCE only, `sub` = account UUID, persisted signing key, JWKS cache that survives auth outages | Existing sessions survive auth-service restarts and outages |
 
 ### Rust (future evaluation)
 

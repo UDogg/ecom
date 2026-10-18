@@ -1,0 +1,219 @@
+name: CI
+
+on:
+  push:
+    branches-ignore: ["dependabot/**"]   # their pull_request run is the one that counts
+  pull_request:
+  schedule:
+    - cron: "17 5 * * 1"   # weekly, so a deprecation or advisory shows up even when nothing was pushed
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  commerce-core:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: ci-only
+          POSTGRES_DB: shop
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 3s --health-retries 20
+    defaults:
+      run:
+        working-directory: services/commerce-core
+    env:
+      POSTGRES_HOST: localhost
+      COMMERCE_DB_USER: postgres
+      COMMERCE_DB_PASSWORD: ci-only
+      JWT_DEV_HS256_SECRET: ci-only-secret-that-is-long-enough-for-hs256
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: services/commerce-core/requirements-dev.txt
+      - run: pip install -r requirements-dev.txt
+      - name: Migrations are complete
+        run: python manage.py makemigrations --check --dry-run
+      - run: python manage.py check
+      - run: pytest
+
+  auth-service:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: ci-only
+          POSTGRES_DB: auth_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 3s --health-retries 20
+    defaults:
+      run:
+        working-directory: services/auth-service
+    env:
+      AUTH_TEST_DB_PASSWORD: ci-only
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+      - run: ./mvnw -B test
+
+  async:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: ci-only
+          POSTGRES_DB: shop
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 3s --health-retries 20
+      rabbitmq:
+        image: rabbitmq:4.3-alpine
+        env:
+          # guest may only connect from loopback, which service containers are not
+          RABBITMQ_DEFAULT_USER: ci
+          RABBITMQ_DEFAULT_PASS: ci-only
+        ports: ["5672:5672"]
+        options: >-
+          --user rabbitmq
+          --health-cmd "rabbitmq-diagnostics -q ping"
+          --health-interval 10s --health-timeout 5s --health-retries 12
+    env:
+      POSTGRES_HOST: localhost
+      OUTBOX_PUBLISHER_DB_USER: postgres
+      OUTBOX_PUBLISHER_DB_PASSWORD: ci-only
+      WORKER_DB_USER: postgres
+      WORKER_DB_PASSWORD: ci-only
+      RABBITMQ_URL: amqp://ci:ci-only@localhost:5672/%2F
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+      - run: pip install -r services/outbox-publisher/requirements-dev.txt -r services/worker/requirements-dev.txt
+      - run: pytest
+        working-directory: services/outbox-publisher
+      - run: pytest
+        working-directory: services/worker
+
+  go:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: ci-only
+          POSTGRES_DB: shop
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 3s --health-retries 20
+    env:
+      CATALOG_TEST_DATABASE_URL: postgres://postgres:ci-only@localhost:5432/shop
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: services/catalog-reader/go.mod
+          cache-dependency-path: |
+            services/catalog-reader/go.sum
+            tools/go/go.sum
+      - name: Pinned tools (tools/go/go.mod, kept current by Dependabot)
+        working-directory: tools/go
+        run: go build -o "$RUNNER_TEMP/bin/" honnef.co/go/tools/cmd/staticcheck golang.org/x/vuln/cmd/govulncheck
+      - name: The shared jwt package is identical in both services
+        run: diff -u services/bff/internal/jwt/jwt.go services/catalog-reader/internal/jwt/jwt.go
+      - name: Format, vet, deprecated APIs (SA1019), tests, known vulnerabilities
+        run: |
+          for m in services/bff services/catalog-reader bench/loadgen; do
+            echo "::group::$m"
+            (cd $m
+             test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
+             go vet ./...
+             "$RUNNER_TEMP/bin/staticcheck" -checks SA1019 ./...
+             go test -race ./...
+             "$RUNNER_TEMP/bin/govulncheck" ./...) || exit 1
+            echo "::endgroup::"
+          done
+
+  fastapi:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: ci-only
+          POSTGRES_DB: shop
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 3s --health-retries 20
+    env:
+      INTEL_TEST_DATABASE_URL: postgresql://postgres:ci-only@localhost:5432/shop
+      PAYMENTS_TEST_DATABASE_URL: postgresql://postgres:ci-only@localhost:5432/shop
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+      - run: pip install -r services/intelligence/requirements-dev.txt -r services/payments-sim/requirements-dev.txt
+      - run: pytest
+        working-directory: services/intelligence
+      - run: pytest
+        working-directory: services/payments-sim
+
+  web:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - name: The demo sells what ./run.sh seeds
+        run: python3 scripts/demo-catalog.py && git diff --exit-code src/api/demo-catalog.ts
+      - run: npm test
+      - name: Live build (served by the BFF) and the GitHub Pages demo
+        run: npm run build && npm run build:demo
+      - name: The demo backend is not in the live bundle
+        run: "! grep -l 'babel-bazaar-demo' dist/assets/*.js"
+
+  compose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - run: bash -n run.sh scripts/breakglass.sh
+      - run: python3 scripts/sizing.py 2048 && python3 scripts/sizing.py 65536 >/dev/null
+      - run: python3 scripts/devsecrets.py ensure || test $? = 3   # fresh .env with random secrets, as ./run.sh does
+      - run: docker compose --profile core --profile ops config --quiet
+      - name: The production overlay and the AWS stack are valid
+        run: |
+          SITE_ADDRESS=ci.example.com COMPOSE_FILE=docker-compose.yml:deploy/compose.prod.yml docker compose --profile core config --quiet
+          bash -n deploy/aws/bootstrap.sh deploy/aws/deploy.sh deploy/aws/update.sh db/tune/postgres.sh bench/run.sh
+          pip install --quiet cfn-lint && cfn-lint deploy/aws/template.yml
+      - run: docker compose --profile core build

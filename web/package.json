@@ -1,0 +1,23 @@
+{
+  "name": "babel-bazaar-web",
+  "private": true,
+  "type": "module",
+  "description": "Babel Bazaar storefront and shop admin. Served by the BFF; nothing else talks to the browser.",
+  "engines": { "node": ">=22.12" },
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build && node scripts/compress.mjs dist",
+    "build:demo": "tsc --noEmit && vite build --mode demo --outDir dist-demo && node scripts/compress.mjs dist-demo",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@preact/signals": "2.11.3",
+    "preact": "11.0.1"
+  },
+  "devDependencies": {
+    "typescript": "7.0.2",
+    "vite": "8.3.4",
+    "vitest": "5.0.5"
+  }
+}

@@ -1,0 +1,26 @@
+# Secrets: only .env.example is committed
+.env
+.env.local
+.env.private
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+
+# Node / Go / Java build output (later phases)
+node_modules/
+.next/
+out/
+target/
+bin/
+
+# Benchmarks
+bench/results/*
+!bench/results/.gitkeep
+
+.DS_Store
+/.bench-loadgen
+/_site/

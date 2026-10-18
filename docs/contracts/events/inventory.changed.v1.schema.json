@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://shop.local/contracts/events/inventory.changed.v1.schema.json",
+  "title": "inventory.changed v1 data",
+  "type": "object",
+  "required": ["product_id", "available_quantity", "delta", "reason"],
+  "properties": {
+    "product_id": {"type": "string"},
+    "available_quantity": {"type": "integer", "minimum": 0},
+    "delta": {"type": "integer"},
+    "reason": {"type": "string"}
+  }
+}
