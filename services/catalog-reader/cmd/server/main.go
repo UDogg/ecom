@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -16,7 +17,28 @@ import (
 
 	"babelbazaar/catalog-reader/internal/catalog"
 	"babelbazaar/catalog-reader/internal/gate"
+	"babelbazaar/catalog-reader/internal/jwt"
 )
+
+// privileged admits verified SYSTEM and break-glass tokens (aud=core).
+func privileged(v *jwt.Verifier) gate.Privileged {
+	return func(r *http.Request) (string, bool) {
+		h := r.Header.Get("Authorization")
+		if !strings.HasPrefix(h, "Bearer ") {
+			return "", false
+		}
+		c, err := v.Verify(r.Context(), strings.TrimSpace(h[7:]))
+		switch {
+		case err != nil:
+			return "", false
+		case c.BreakGlass:
+			return "BREAK-GLASS " + c.BgBy + " as " + c.Subject + " (grant " + c.BgGrant + ", reason " + strconv.Quote(c.BgReason) + ")", true
+		case c.IsSystem():
+			return "SYSTEM " + c.Service, true
+		}
+		return "", false
+	}
+}
 
 func env(name, def string) string {
 	if v := os.Getenv(name); v != "" {
@@ -42,6 +64,14 @@ func main() {
 		log.Error("refusing to start", "err", err)
 		os.Exit(1)
 	}
+	// JWKS over the internal network; privileged tokens must be aud=core.
+	guard.Privileged = privileged(&jwt.Verifier{
+		Issuer:   env("PUBLIC_AUTH_ISSUER_URL", "http://localhost:8080"),
+		Audience: "core",
+		Leeway:   30 * time.Second,
+		Source: jwt.HTTPKeySource(&http.Client{Timeout: 3 * time.Second, Transport: &http.Transport{Proxy: nil}},
+			env("INTERNAL_AUTH_JWKS_URL", "http://auth-service:8081/oauth2/jwks")),
+	})
 
 	cfg, err := pgxpool.ParseConfig("")
 	if err != nil {

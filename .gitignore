@@ -1,6 +1,7 @@
 # Secrets: only .env.example is committed
 .env
 .env.local
+.env.private
 
 # Python
 __pycache__/

@@ -21,6 +21,7 @@ from psycopg.conninfo import make_conninfo
 from psycopg_pool import ConnectionPool
 
 from .gateway import GatewayGuard
+from .tokens import JWKSCache, PrivilegedTokens
 
 log = logging.getLogger("intelligence")
 
@@ -74,7 +75,7 @@ class Recommender:
             self.slots.release()
 
 
-def create_app(pool=None, recommender=None, gateway_secret=None, allow_unguarded=None):
+def create_app(pool=None, recommender=None, gateway_secret=None, allow_unguarded=None, privileged=None):
     @asynccontextmanager
     async def lifespan(app):
         yield
@@ -129,4 +130,7 @@ def create_app(pool=None, recommender=None, gateway_secret=None, allow_unguarded
 
     secret = os.environ.get("GATEWAY_SECRET", "") if gateway_secret is None else gateway_secret
     unguarded = (os.environ.get("GATEWAY_ALLOW_UNGUARDED", "") == "true") if allow_unguarded is None else allow_unguarded
-    return GatewayGuard(app, secret, unguarded)
+    if privileged is None:
+        privileged = PrivilegedTokens(JWKSCache(os.environ.get("INTERNAL_AUTH_JWKS_URL", "http://auth-service:8081/oauth2/jwks")),
+                                      issuer=os.environ.get("PUBLIC_AUTH_ISSUER_URL", "http://localhost:8080"))
+    return GatewayGuard(app, secret, unguarded, privileged=privileged)

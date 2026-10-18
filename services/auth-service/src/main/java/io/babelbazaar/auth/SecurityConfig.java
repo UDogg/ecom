@@ -60,7 +60,8 @@ public class SecurityConfig {
     @Order(2)
     SecurityFilterChain applicationChain(HttpSecurity http) throws Exception {
         http.authorizeHttpRequests(a -> a
-                        .requestMatchers("/healthz", "/readyz", "/error", "/login", "/api/auth/register").permitAll()
+                        // /api/auth/**: registration, plus the privileged doors that check their own credentials
+                        .requestMatchers("/healthz", "/readyz", "/error", "/login", "/api/auth/**").permitAll()
                         .anyRequest().authenticated())
                 .formLogin(Customizer.withDefaults())
                 // The JSON registration API uses no cookies (the BFF calls it, signed), so CSRF does not apply to it.
@@ -101,11 +102,13 @@ public class SecurityConfig {
 
     /** Before Spring Security: unsigned requests never reach a session, form or token endpoint. */
     @Bean
-    org.springframework.boot.web.servlet.FilterRegistrationBean<GatewayGuardFilter> gatewayGuard(AuthProperties props) {
+    org.springframework.boot.web.servlet.FilterRegistrationBean<GatewayGuardFilter> gatewayGuard(AuthProperties props,
+                                                                                                PrivilegedTokens privileged) {
         var gateway = props.gateway();
         var filter = new GatewayGuardFilter(gateway == null ? "" : gateway.secret(), gateway != null && gateway.allowUnguarded(),
-                // health probes, and the public signing keys resource services verify tokens with
-                java.util.Set.of("/healthz", "/readyz", "/oauth2/jwks"), java.time.Clock.systemUTC());
+                // health probes, the public signing keys, and the super-credential sign-in (it checks its own credentials)
+                java.util.Set.of("/healthz", "/readyz", "/oauth2/jwks", "/api/auth/service-token"), java.time.Clock.systemUTC(),
+                privileged::admits);
         var registration = new org.springframework.boot.web.servlet.FilterRegistrationBean<>(filter);
         registration.setOrder(org.springframework.core.Ordered.HIGHEST_PRECEDENCE);
         registration.addUrlPatterns("/*");
@@ -132,6 +135,12 @@ public class SecurityConfig {
     @Bean
     JWKSource<SecurityContext> jwkSource(RSAKey signingKey) {
         return new ImmutableJWKSet<>(new JWKSet(signingKey));
+    }
+
+    /** One encoder for every token: the authorization server's and the privileged ones (same key, same kid). */
+    @Bean
+    org.springframework.security.oauth2.jwt.JwtEncoder jwtEncoder(JWKSource<SecurityContext> jwkSource) {
+        return new org.springframework.security.oauth2.jwt.NimbusJwtEncoder(jwkSource);
     }
 
     @Bean

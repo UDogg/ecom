@@ -19,3 +19,8 @@ auth:
     owner-password: test-owner-password
     customer-email: customer@shop.test
     customer-password: test-customer-password
+  service-accounts: ops=svc_testops01:ddad18508e01b26dceb275378a6e038f37d20dc8aa9d3d1f1d0c69a428f46424|2a795483f944060f58df67d01808067679845fe2e6c733600426fd99c4fb8445
+  break-glass:
+    password-sha256: 65ec941149f73faa147470de60c1da0fce8769ce6ac4af38e3b2d96c79cf11b1
+    minutes: 15
+    attempts-per-minute: 1000

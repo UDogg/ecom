@@ -8,8 +8,9 @@ and `docs/adr/012-bff-and-gated-core.md`.
 **It has no public port.** `GatewayGuardFilter` runs before Spring Security
 and refuses anything the BFF did not sign. The BFF proxies the sign-in pages,
 and its origin is the issuer. The only OAuth client is the BFF (confidential,
-PKCE, rotating refresh tokens). Only `/healthz`, `/readyz` and `/oauth2/jwks`
-are open.
+PKCE, rotating refresh tokens). Only `/healthz`, `/readyz`, `/oauth2/jwks` and
+`/api/auth/service-token` are open. SYSTEM and break-glass tokens pass the
+guard; see `docs/break-glass.md`.
 
 | Endpoint | Purpose |
 |---|---|
@@ -20,6 +21,9 @@ are open.
 | `GET /oauth2/jwks` | Public signing key(s) |
 | `GET /userinfo` | OIDC user info |
 | `POST /api/auth/register` | `{"email", "password"}` creates a **customer** (password 12 to 128 chars) |
+| `POST /api/auth/service-token` | Client credentials for a **SYSTEM** token (service accounts; an open door on the private network) |
+| `POST /api/auth/break-glass` | SYSTEM token + break-glass password: a 15-minute token acting as one user; every attempt audited; 404 when switched off |
+| `GET /api/auth/ops/break-glass-grants` | The audit trail (SYSTEM only) |
 | `GET /healthz`, `GET /readyz` | Liveness and readiness (DB check) |
 
 Access tokens are RS256 JWTs with `sub` (account UUID), `email`, `roles`

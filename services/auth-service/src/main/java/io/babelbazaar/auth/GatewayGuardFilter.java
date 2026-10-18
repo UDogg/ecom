@@ -41,8 +41,18 @@ public class GatewayGuardFilter extends OncePerRequestFilter {
     private final Set<String> openPaths;
     private final Clock clock;
     private final ConcurrentHashMap<String, Long> seen = new ConcurrentHashMap<>();
+    private final java.util.function.Predicate<String> privileged;
 
     public GatewayGuardFilter(String secret, boolean allowUnguarded, Set<String> openPaths, Clock clock) {
+        this(secret, allowUnguarded, openPaths, clock, header -> false);
+    }
+
+    /**
+     * @param privileged says whether an Authorization header holds a verified SYSTEM or break-glass token: the only
+     *                   way in without the BFF's signature (docs/break-glass.md)
+     */
+    public GatewayGuardFilter(String secret, boolean allowUnguarded, Set<String> openPaths, Clock clock,
+                              java.util.function.Predicate<String> privileged) {
         String s = secret == null ? "" : secret;
         if (allowUnguarded) {
             log.warn("GATEWAY_ALLOW_UNGUARDED is on: requests that bypass the BFF are NOT refused. Local development and tests only.");
@@ -55,6 +65,7 @@ public class GatewayGuardFilter extends OncePerRequestFilter {
         this.secret = s.getBytes(StandardCharsets.UTF_8);
         this.openPaths = Set.copyOf(openPaths);
         this.clock = clock;
+        this.privileged = privileged;
     }
 
     static String canonical(String ts, String nonce, String method, String path, String query, String authorization) {
@@ -85,6 +96,12 @@ public class GatewayGuardFilter extends OncePerRequestFilter {
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
             throws ServletException, IOException {
         if (secret.length == 0 || openPaths.contains(request.getRequestURI()) || signed(request)) {
+            chain.doFilter(request, response);
+            return;
+        }
+        if (privileged.test(request.getHeader("Authorization"))) {
+            log.warn("PRIVILEGED request without the BFF: {} {} from {}", request.getMethod(), request.getRequestURI(),
+                    request.getRemoteAddr());
             chain.doFilter(request, response);
             return;
         }

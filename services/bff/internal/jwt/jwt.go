@@ -1,6 +1,9 @@
 // Package jwt verifies auth-service access tokens: RS256 only, against a
 // locally cached JWKS, checking issuer, audience, expiry and not-before.
 //
+// This file is shared verbatim by services/bff and services/catalog-reader
+// (CI diffs them): change both together.
+//
 // The key cache keeps the last good keys when auth-service is unreachable,
 // refetches early for an unknown kid (rate limited), and never accepts any
 // algorithm but RS256: "none", HS256 and friends are refused by construction.
@@ -35,7 +38,7 @@ var (
 	ErrMissingClaim = errors.New("missing required claim")
 )
 
-// Claims are the parts of an access token the BFF uses.
+// Claims are the parts of an access token the services use.
 type Claims struct {
 	Subject   string   `json:"sub"`
 	Issuer    string   `json:"iss"`
@@ -44,7 +47,17 @@ type Claims struct {
 	ExpiresAt int64    `json:"exp"`
 	NotBefore int64    `json:"nbf"`
 	Audience  audience `json:"aud"`
+
+	// Privileged tokens (docs/break-glass.md); always aud=core.
+	BreakGlass bool   `json:"break_glass"`
+	BgBy       string `json:"bg_by"`
+	BgReason   string `json:"bg_reason"`
+	BgGrant    string `json:"bg_grant"`
+	Service    string `json:"service"`
 }
+
+// IsSystem: a service account's token (the system role on a svc: subject only).
+func (c Claims) IsSystem() bool { return c.HasRole("system") && strings.HasPrefix(c.Subject, "svc:") }
 
 func (c Claims) HasRole(role string) bool {
 	for _, r := range c.Roles {

@@ -1,6 +1,7 @@
 // Package gate refuses every request that did not come through the BFF
 // (docs/request-signing.md): an empty 403 before routing, parsing or any
-// database work. Fail closed: New refuses a missing or short secret.
+// database work. The only other way in is a verified SYSTEM or break-glass
+// token. Fail closed: New refuses a missing or short secret.
 //
 // The same function lives in the BFF signer and in the Django, FastAPI and
 // Spring guards; docs/contracts/gateway-signing.vectors.json keeps them (and
@@ -38,12 +39,18 @@ func Sign(secret []byte, ts, nonce, method, path, query, authorization string) s
 	return hex.EncodeToString(mac.Sum(nil))
 }
 
+// Privileged says whether an Authorization header carries a verified SYSTEM or
+// break-glass token, the only way in without the BFF's signature
+// (docs/break-glass.md). It returns a description for the audit log.
+type Privileged func(r *http.Request) (string, bool)
+
 // Guard is an http middleware.
 type Guard struct {
-	secret []byte
-	open   map[string]bool
-	log    *slog.Logger
-	Now    func() time.Time
+	secret     []byte
+	open       map[string]bool
+	log        *slog.Logger
+	Now        func() time.Time
+	Privileged Privileged
 
 	mu   sync.Mutex
 	seen map[string]time.Time
@@ -71,6 +78,13 @@ func (g *Guard) Wrap(next http.Handler) http.Handler {
 		if len(g.secret) == 0 || g.open[r.URL.Path] || g.verify(r) {
 			next.ServeHTTP(w, r)
 			return
+		}
+		if g.Privileged != nil {
+			if who, ok := g.Privileged(r); ok {
+				g.log.Warn("PRIVILEGED request without the BFF", "who", who, "method", r.Method, "path", r.URL.Path)
+				next.ServeHTTP(w, r)
+				return
+			}
 		}
 		g.log.Info("refused a request that did not come through the BFF", "method", r.Method, "path", r.URL.Path, "from", r.RemoteAddr)
 		w.Header().Set("Content-Length", "0")

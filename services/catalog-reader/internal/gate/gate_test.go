@@ -114,3 +114,19 @@ func TestFullCacheRefuses(t *testing.T) {
 		t.Fatal("full cache accepted a nonce (it must refuse, never forget a live one)")
 	}
 }
+
+func TestPrivilegedTokensPassAndAreLogged(t *testing.T) {
+	h, g := guarded(t)
+	g.Privileged = func(r *http.Request) (string, bool) {
+		return "break-glass svc_ops as u1", r.Header.Get("Authorization") == "Bearer good"
+	}
+	r := httptest.NewRequest("GET", "/api/catalog/products", nil)
+	r.Header.Set("Authorization", "Bearer good")
+	if serve(h, r).Code != 200 {
+		t.Fatal("privileged token refused")
+	}
+	r.Header.Set("Authorization", "Bearer user-token")
+	if rec := serve(h, r); rec.Code != 403 || rec.Body.Len() != 0 {
+		t.Fatal("a non-privileged token got past the guard")
+	}
+}

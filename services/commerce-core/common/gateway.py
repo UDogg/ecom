@@ -9,7 +9,8 @@ Every request must carry the BFF's signature (docs/request-signing.md):
 
 so a signature is good for one method, path, query and user token, for 60
 seconds, once. Anything else gets an empty 403 before authentication, parsing
-or any database work. Fail closed: no GATEWAY_SECRET means the web process
+or any database work. The only other way in is a verified SYSTEM or
+break-glass token (aud=core), logged at WARNING. Fail closed: no GATEWAY_SECRET means the web process
 refuses to start, unless GATEWAY_ALLOW_UNGUARDED=true (local dev and tests).
 
 The same function lives in the Go BFF, the Go and FastAPI services and the
@@ -96,6 +97,20 @@ def verify(secret, nonces, method, path, query, headers, now=None):
     return nonces.remember(nonce, now)  # only after the signature checks out
 
 
+def privileged_claims(authorization):
+    """Claims of a verified SYSTEM or break-glass token, else None (docs/break-glass.md)."""
+    parts = (authorization or "").split()
+    if len(parts) != 2 or parts[0] != "Bearer":
+        return None
+    from .auth import decode_token, is_privileged  # late: settings must be ready
+
+    try:
+        claims = decode_token(parts[1])
+    except Exception:  # noqa: BLE001 - any failure to verify is "no"
+        return None
+    return claims if is_privileged(claims) else None
+
+
 class GatewayGuardMiddleware:
     """Must be first in MIDDLEWARE."""
 
@@ -115,9 +130,17 @@ class GatewayGuardMiddleware:
             path = raw.split("?", 1)[0] if raw else request.path
             if not verify(self.secret, self.nonces, request.method, path, request.META.get("QUERY_STRING", ""),
                           request.headers):
-                log.info("refused a request that did not come through the BFF: %s %s from %s",
-                         request.method, request.path, request.META.get("REMOTE_ADDR"))
-                return HttpResponse(status=403)
+                claims = privileged_claims(request.headers.get("Authorization"))
+                if claims is None:
+                    log.info("refused a request that did not come through the BFF: %s %s from %s",
+                             request.method, request.path, request.META.get("REMOTE_ADDR"))
+                    return HttpResponse(status=403)
+                if claims.get("break_glass") is True:
+                    log.warning("BREAK-GLASS request: %s acting as %s: %s %s (grant %s, reason %r)",
+                                claims.get("bg_by"), claims.get("sub"), request.method, request.path,
+                                claims.get("bg_grant"), claims.get("bg_reason"))
+                else:
+                    log.warning("SYSTEM request from service %s: %s %s", claims.get("service"), request.method, request.path)
         elif not self.secret and not self.allow_unguarded:  # unreachable after check_configuration; belt and braces
             return HttpResponse(status=403)
         return self.get_response(request)

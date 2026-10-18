@@ -20,7 +20,9 @@ from rest_framework import authentication, exceptions
 
 CUSTOMER = "customer"
 SHOP_OWNER = "shop_owner"
-KNOWN_ROLES = {CUSTOMER, SHOP_OWNER}
+SYSTEM = "system"
+KNOWN_ROLES = {CUSTOMER, SHOP_OWNER, SYSTEM}
+PRIVILEGED_AUDIENCE = "core"
 
 
 log = logging.getLogger(__name__)
@@ -28,9 +30,11 @@ log = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class Principal:
-    id: uuid.UUID
+    id: uuid.UUID | None  # None for a service account (SYSTEM): it is nobody's customer
     roles: frozenset = field(default_factory=frozenset)
     email: str | None = None
+    service: str | None = None          # service account name, for SYSTEM tokens
+    break_glass_by: str | None = None   # operator's client id, for break-glass tokens
 
     is_authenticated = True
     is_anonymous = False
@@ -41,6 +45,10 @@ class Principal:
     @property
     def is_shop_owner(self):
         return SHOP_OWNER in self.roles
+
+    @property
+    def is_system(self):
+        return SYSTEM in self.roles
 
 
 def _fetch_jwks(url):
@@ -120,7 +128,37 @@ def roles_from_claims(claims):
     raw = claims.get("roles", claims.get("role", []))
     if isinstance(raw, str):
         raw = raw.replace(",", " ").split()
-    return frozenset(r for r in raw if r in KNOWN_ROLES)
+    roles = frozenset(r for r in raw if r in KNOWN_ROLES)
+    # SYSTEM belongs to service accounts only, never to a person's token.
+    if SYSTEM in roles and not str(claims.get("sub", "")).startswith("svc:"):
+        roles -= {SYSTEM}
+    return roles
+
+
+def audiences(claims):
+    aud = claims.get("aud", [])
+    return {aud} if isinstance(aud, str) else set(aud or [])
+
+
+def is_privileged(claims):
+    """SYSTEM or break-glass: the only tokens that may skip the BFF (aud=core, which the BFF's tokens never carry)."""
+    if PRIVILEGED_AUDIENCE not in audiences(claims):
+        return False
+    if claims.get("break_glass") is True:
+        return True
+    return SYSTEM in roles_from_claims(claims)
+
+
+def principal_from_claims(claims):
+    roles = roles_from_claims(claims)
+    sub = str(claims["sub"])
+    email = claims.get("email")
+    if sub.startswith("svc:"):
+        if SYSTEM not in roles:
+            raise ValueError("service subject without the system role")
+        return Principal(id=None, roles=frozenset({SYSTEM}), service=str(claims.get("service", sub)))
+    return Principal(id=uuid.UUID(sub), roles=roles, email=email if isinstance(email, str) else None,
+                     break_glass_by=str(claims.get("bg_by")) if claims.get("break_glass") is True else None)
 
 
 class JWTAuthentication(authentication.BaseAuthentication):
@@ -135,9 +173,7 @@ class JWTAuthentication(authentication.BaseAuthentication):
             raise exceptions.AuthenticationFailed("Malformed Authorization header.")
         try:
             claims = decode_token(parts[1])
-            email = claims.get("email")
-            principal = Principal(id=uuid.UUID(str(claims["sub"])), roles=roles_from_claims(claims),
-                                  email=email if isinstance(email, str) else None)
+            principal = principal_from_claims(claims)
         except (jwt.PyJWTError, ValueError) as exc:
             raise exceptions.AuthenticationFailed(f"Invalid token: {exc}") from exc
         return principal, claims

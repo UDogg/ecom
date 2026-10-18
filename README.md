@@ -261,30 +261,25 @@ The full stack is heavy. Profiles let you run only what you need.
 ```bash
 git clone https://github.com/<you>/babel-bazaar.git
 cd babel-bazaar
-
-# 1. Create your local environment file (safe dev-only defaults)
-cp .env.example .env
-
-# 2. Start the core stack
-docker compose --profile core up --build -d
-
-# 3. Create tables, seed demo data, and create the shop owner account
-make migrate
-make seed
-
-# 4. Open the app
-open http://localhost:3000        # storefront
-open http://localhost:3000/admin  # shop owner admin panel
+./run.sh
 ```
 
-With `make`:
+That is all. `./run.sh` checks the machine, creates `.env` with **fresh random
+secrets** on first run (and `.env.private` for the operator secrets), builds
+the images, starts everything, waits until every service is healthy, loads
+the demo catalogue, and prints where everything is and how to sign in.
 
 ```bash
-make up          # core profile
-make up-full     # every profile
-make down        # stop everything
-make reset       # stop and wipe all volumes (clean slate)
+./run.sh status            # health of every container
+./run.sh logs bff          # follow one service
+./run.sh api --role owner GET /api/admin/dashboard     # call the BFF as the seeded owner
+./run.sh breakglass ...    # privileged access when the BFF is down (docs/break-glass.md)
+./run.sh test | scenario   # test suites; the broker-outage scenario
+./run.sh down | reset      # stop (keep data); delete everything
 ```
+
+The `Makefile` targets (`make up`, `make seed`, `make test`, ...) still work
+for finer control.
 
 ### Local URLs
 
@@ -1323,6 +1318,7 @@ Begin with a small but realistic workflow, **not** a large collection of service
 ### Phase 5: Fault injection and security
 - [ ] Failure-injection suite and service-permission matrix
 - [ ] Recovery-time measurements
+- [x] Privileged access like Ensuretech's: service accounts (SYSTEM tokens) and audited break-glass ([docs/break-glass.md](docs/break-glass.md))
 - [ ] Security findings and remediation plan
 - [ ] Cross-service observability dashboards
 
@@ -1609,7 +1605,7 @@ Initial decisions (full text in `docs/adr/`):
 | 008 | Rust deferred | No measured need; avoid adding variables before evaluating the initial design |
 | 009 | Pages demo simulates services in-browser (Service Worker, WASM, Workers) behind the same API contract | Free public showcase; one frontend for demo and live modes |
 | [010](docs/adr/010-event-consumers-use-plain-amqp.md) | Event consumers use plain AMQP, not Celery tasks | Events are a language-neutral contract; Celery's task protocol is Python RPC |
-| [012](docs/adr/012-bff-and-gated-core.md) | A Go BFF is the only entry point; every core service refuses unsigned requests (adopted from Ensuretech) | Two independent proofs on every call: origin (HMAC signature) and user (JWT) |
+| [012](docs/adr/012-bff-and-gated-core.md) | A Go BFF is the only entry point; every core service refuses unsigned requests, except SYSTEM and audited break-glass tokens (adopted from Ensuretech) | Two independent proofs on every call: origin (HMAC signature) and user (JWT); a controlled way in when the BFF is down |
 | [011](docs/adr/011-auth-service-token-design.md) | Token design: PKCE only, `sub` = account UUID, persisted signing key, JWKS cache that survives auth outages | Existing sessions survive auth-service restarts and outages |
 
 ### Rust (future evaluation)

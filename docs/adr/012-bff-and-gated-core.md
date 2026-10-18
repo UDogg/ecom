@@ -63,14 +63,14 @@ alert, rate limits, server-side tokens, and CSRF on state changes.
 | Guards in PHP, Java, Python (Django) | Guards in Java, Python (Django **and** FastAPI) and Go | The polyglot core: Go `catalog-reader`, FastAPI `intelligence` |
 | BFF signs in with the identity service's password API | Full OIDC code flow, BFF as confidential client, auth pages proxied | auth-service is OIDC (ADR 011); keeps auth-service fully gated |
 | Unknown body fields dropped | Unknown body fields **refused** (400) | Clients learn their request was wrong; no silent drift |
-| SYSTEM tokens and break-glass | **Not yet** | No service-to-service HTTP calls exist yet; add them before one does |
+| SYSTEM tokens and break-glass | **Same model** (`docs/break-glass.md`), with the password and service secrets stored only as SHA-256 hashes, privileged tokens restricted to audience `core`, and an `opsbox` container as the private-network entry | Operators can work while the BFF is down, every grant audited |
 | Emergency mitigations file | **Not yet** | The contract is compiled in; mitigations need their own review process |
 
 ## Consequences
 
 - `curl` or Postman against a core service gets an empty 403, even with a
-  stolen token. Operators debug through the BFF, or (later) with SYSTEM or
-  break-glass tokens.
+  stolen token. Operators debug through the BFF, or, from the private
+  network, with SYSTEM or break-glass tokens (`docs/break-glass.md`).
 - Anyone holding `GATEWAY_SECRET` can act as the BFF. Keep it in a secret
   manager and rotate it.
 - Sessions and nonce caches are in memory: one BFF replica (or sticky

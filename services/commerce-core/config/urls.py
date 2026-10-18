@@ -1,6 +1,7 @@
 from django.urls import path
 
 from catalog import views as catalog
+from common import ops
 from common import views as common
 from orders import views as orders
 
@@ -9,6 +10,10 @@ admin = "api/commerce/admin"
 urlpatterns = [
     path("healthz", common.healthz),
     path("readyz", common.readyz),
+
+    # Operations: SYSTEM tokens only (docs/break-glass.md)
+    path("api/commerce/ops/status", ops.OpsStatus.as_view()),
+    path("api/commerce/ops/reservations/expire", ops.OpsExpireReservations.as_view()),
 
     # Shop owner admin API
     path(f"{admin}/products", catalog.AdminProductList.as_view()),

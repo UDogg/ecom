@@ -127,6 +127,8 @@ jobs:
         with:
           go-version: "1.24"
           cache-dependency-path: services/catalog-reader/go.sum
+      - name: The shared jwt package is identical in both services
+        run: diff -u services/bff/internal/jwt/jwt.go services/catalog-reader/internal/jwt/jwt.go
       - name: BFF (standard library only)
         working-directory: services/bff
         run: |
@@ -172,6 +174,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: cp .env.example .env
-      - run: docker compose --profile core config --quiet
+      - run: bash -n run.sh scripts/breakglass.sh
+      - run: python3 scripts/devsecrets.py ensure || test $? = 3   # fresh .env with random secrets, as ./run.sh does
+      - run: docker compose --profile core --profile ops config --quiet
       - run: docker compose --profile core build

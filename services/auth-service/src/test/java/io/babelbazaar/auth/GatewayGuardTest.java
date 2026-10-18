@@ -96,6 +96,33 @@ class GatewayGuardTest {
         mvc.perform(get("/oauth2/jwks")).andExpect(status().isOk());
     }
 
+    @Autowired PrivilegedTokens privileged;
+    @Autowired UserAccounts users;
+
+    @Test
+    void serviceTokenDoorIsOpenAndSystemTokensPassTheGuard() throws Exception {
+        String body = mvc.perform(post("/api/auth/service-token").contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                        .param("grant_type", "client_credentials").param("client_id", PrivilegedAccessTest.CLIENT)
+                        .param("client_secret", PrivilegedAccessTest.SECRET))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        String system = new ObjectMapper().readTree(body).get("access_token").asText();
+        mvc.perform(get("/api/auth/ops/break-glass-grants").header("Authorization", "Bearer " + system))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void breakGlassTokensPassTheGuardButUserTokensDoNot() throws Exception {
+        var customer = users.findActiveById(SeedAccounts.CUSTOMER_ID).orElseThrow();
+        String bg = privileged.breakGlass(customer, "svc_x", "guard admission test", java.time.Duration.ofMinutes(1),
+                java.util.UUID.randomUUID()).token();
+        // Past the guard (a JSON refusal from the controller, not the guard's empty 403).
+        mvc.perform(get("/api/auth/ops/break-glass-grants").header("Authorization", "Bearer " + bg))
+                .andExpect(status().isForbidden()).andExpect(content().string("{\"error\":\"system_only\"}"));
+        // An ordinary signed-in user's token is not a way past the guard.
+        mvc.perform(get("/api/auth/ops/break-glass-grants").header("Authorization", "Bearer not-a-real-token"))
+                .andExpect(status().isForbidden()).andExpect(content().string(""));
+    }
+
     @Test
     void refusesToStartWithoutAProperSecret() {
         assertThatThrownBy(() -> new GatewayGuardFilter("", false, Set.of(), java.time.Clock.systemUTC()))

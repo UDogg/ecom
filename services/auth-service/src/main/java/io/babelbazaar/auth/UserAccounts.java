@@ -71,6 +71,17 @@ public class UserAccounts implements UserDetailsService {
                 .optional();
     }
 
+    public Optional<Account> findActiveById(UUID id) {
+        return jdbc.sql("SELECT id, email, roles, enabled FROM app_user WHERE id = ? AND enabled")
+                .param(id)
+                .query((rs, n) -> new Account(
+                        rs.getObject("id", UUID.class),
+                        rs.getString("email"),
+                        Arrays.asList((String[]) rs.getArray("roles").getArray()),
+                        rs.getBoolean("enabled")))
+                .optional();
+    }
+
     @Override
     public UserDetails loadUserByUsername(String email) {
         return jdbc.sql("SELECT email, password_hash, roles, enabled FROM app_user WHERE email = ?")

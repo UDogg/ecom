@@ -96,7 +96,8 @@ GATEWAY_OPEN_PATHS = ("/healthz", "/readyz")  # container probes only; they reve
 # Production path: RS256 tokens verified against the auth-service JWKS.
 JWT_JWKS_URL = env("INTERNAL_AUTH_JWKS_URL", "")
 JWT_ISSUER = env("PUBLIC_AUTH_ISSUER_URL", "http://localhost:8080")  # the BFF origin (ADR 012)
-JWT_AUDIENCE = env("JWT_AUDIENCE", "") or None
+# bff: user tokens the BFF forwards. core: SYSTEM and break-glass tokens (docs/break-glass.md).
+JWT_AUDIENCE = env_list("JWT_AUDIENCE", "") or None
 # Dev/test path: HS256 tokens signed with a shared secret. Only honoured when
 # set; used until auth-service exists and by the test suite.
 JWT_DEV_HS256_SECRET = env("JWT_DEV_HS256_SECRET", "")

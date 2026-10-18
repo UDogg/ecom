@@ -23,7 +23,14 @@ public record AuthProperties(
         Duration refreshTokenTtl,
         String signingKeyPath,
         Seed seed,
-        Gateway gateway) {
+        Gateway gateway,
+        String serviceAccounts,
+        Duration serviceTokenTtl,
+        BreakGlass breakGlass) {
+
+    /** Break glass (docs/break-glass.md): off unless a SHA-256 of a random 16+ character password is configured. */
+    public record BreakGlass(String passwordSha256, int minutes, int attemptsPerMinute) {
+    }
 
     /** The BFF's signature check (docs/request-signing.md). */
     public record Gateway(String secret, boolean allowUnguarded) {

@@ -28,6 +28,13 @@ auth:
   access-token-ttl: ${ACCESS_TOKEN_TTL_SECONDS:600}s
   refresh-token-ttl: ${REFRESH_TOKEN_TTL_SECONDS:28800}s
   signing-key-path: ${AUTH_SIGNING_KEY_PATH:./var/signing-key.json}
+  # name=client_id:sha256(secret)[|sha256(secret)],...  (./run.sh generates one, `ops`)
+  service-accounts: ${SERVICE_ACCOUNTS:}
+  service-token-ttl: ${SERVICE_TOKEN_SECONDS:600}s
+  break-glass:
+    password-sha256: ${BREAK_GLASS_PASSWORD_SHA256:}
+    minutes: ${BREAK_GLASS_MINUTES:15}
+    attempts-per-minute: ${BREAK_GLASS_ATTEMPTS_PER_MINUTE:5}
   gateway:
     secret: ${GATEWAY_SECRET:}
     allow-unguarded: ${GATEWAY_ALLOW_UNGUARDED:false}

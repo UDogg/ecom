@@ -38,7 +38,8 @@ def sign(secret, ts, nonce, method, path, query, authorization):
 
 
 class GatewayGuard:
-    def __init__(self, app, secret, allow_unguarded=False, open_paths=("/healthz", "/readyz"), clock=time.time):
+    def __init__(self, app, secret, allow_unguarded=False, open_paths=("/healthz", "/readyz"), clock=time.time,
+                 privileged=None):
         if allow_unguarded:
             log.warning("GATEWAY_ALLOW_UNGUARDED is on: requests that bypass the BFF are NOT refused. "
                         "Local development and tests only.")
@@ -48,19 +49,31 @@ class GatewayGuard:
             raise GatewayMisconfigured("GATEWAY_SECRET is shorter than 32 characters (openssl rand -hex 32).")
         self.app, self.secret, self.open_paths, self.clock = app, (secret or "").encode(), frozenset(open_paths), clock
         self._seen, self._lock = {}, threading.Lock()
+        # Verified SYSTEM or break-glass tokens: the only way in without the BFF (docs/break-glass.md).
+        self.privileged = privileged or (lambda authorization: None)
 
     async def __call__(self, scope, receive, send):
         if scope["type"] != "http" or not self.secret or scope["path"] in self.open_paths or self._signed(scope):
+            await self.app(scope, receive, send)
+            return
+        who = self.privileged(self._headers(scope).get("authorization", ""))
+        if who:
+            log.warning("PRIVILEGED request without the BFF: %s: %s %s", who, scope["method"], scope["path"])
             await self.app(scope, receive, send)
             return
         log.info("refused a request that did not come through the BFF: %s %s", scope["method"], scope["path"])
         await send({"type": "http.response.start", "status": 403, "headers": [(b"content-length", b"0")]})
         await send({"type": "http.response.body", "body": b""})
 
-    def _signed(self, scope):
+    @staticmethod
+    def _headers(scope):
         headers = {}
         for k, v in scope.get("headers", []):
             headers.setdefault(k.decode("latin-1").lower(), v.decode("latin-1"))
+        return headers
+
+    def _signed(self, scope):
+        headers = self._headers(scope)
         ts = headers.get("x-gateway-timestamp", "")
         nonce = headers.get("x-gateway-nonce", "")
         signature = headers.get("x-gateway-signature", "")

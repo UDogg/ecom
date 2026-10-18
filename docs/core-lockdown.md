@@ -21,6 +21,14 @@ catalog-reader or intelligence, with a stolen token or without one. See
 - `/healthz` and `/readyz` on every service, for container probes. They
   reveal nothing.
 - auth-service's `/oauth2/jwks`: public keys, which resource services fetch.
+- auth-service's `/api/auth/service-token`: the super-credential sign-in. It
+  checks its own credentials and is reachable only from the private network.
+
+## The only other way in
+
+A verified **SYSTEM** token (service account) or **break-glass** token, both
+with audience `core` (`break-glass.md`). Every such request is logged at
+WARNING by the service it reaches.
 
 Everything else, including auth-service's token endpoint and discovery
 document, needs the BFF's signature.
@@ -38,9 +46,10 @@ document, needs the BFF's signature.
 ## Prove it
 
 ```bash
-make up && make seed
+./run.sh
 curl -m 3 localhost:8000/healthz         # commerce-core: no route from the host
-make api ROLE=owner CALL="GET /api/admin/dashboard"     # through the BFF: 200
+./run.sh api --role owner GET /api/admin/dashboard     # through the BFF: 200
+./run.sh breakglass system GET commerce /api/commerce/ops/status   # SYSTEM, from the private network: 200
 docker compose --profile core exec worker python -c \
   "import urllib.request; urllib.request.urlopen('http://commerce-core:8000/api/commerce/orders')"
 # inside the network, unsigned: HTTP Error 403 with an empty body
@@ -48,9 +57,6 @@ docker compose --profile core exec worker python -c \
 
 ## Not covered yet
 
-- **SYSTEM tokens and break-glass** (Ensuretech has both). With the BFF down
-  there is no way into the cores. Add them before the first
-  service-to-service HTTP call.
 - **Mutual TLS** between the BFF and the cores.
 - **Shared session and nonce stores** for multiple BFF replicas.
 - **Secret rotation** without a dual-secret window means a short outage.

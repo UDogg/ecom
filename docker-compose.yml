@@ -19,7 +19,7 @@ x-commerce-env: &commerce-env
   PUBLIC_AUTH_ISSUER_URL: ${PUBLIC_AUTH_ISSUER_URL}
   PUBLIC_ASSET_BASE_URL: ${PUBLIC_ASSET_BASE_URL}
   INTERNAL_AUTH_JWKS_URL: ${INTERNAL_AUTH_JWKS_URL:-http://auth-service:8081/oauth2/jwks}
-  JWT_AUDIENCE: ${OIDC_CLIENT_ID:-bff}
+  JWT_AUDIENCE: ${OIDC_CLIENT_ID:-bff},core   # core: SYSTEM and break-glass tokens
   GATEWAY_SECRET: ${GATEWAY_SECRET}
   JWT_DEV_HS256_SECRET: ${JWT_DEV_HS256_SECRET:-}
   RESERVATION_TTL_SECONDS: ${RESERVATION_TTL_SECONDS:-900}
@@ -133,6 +133,9 @@ services:
       ACCESS_TOKEN_TTL_SECONDS: ${ACCESS_TOKEN_TTL_SECONDS:-600}
       REFRESH_TOKEN_TTL_SECONDS: ${REFRESH_TOKEN_TTL_SECONDS:-28800}
       GATEWAY_SECRET: ${GATEWAY_SECRET}
+      SERVICE_ACCOUNTS: ${SERVICE_ACCOUNTS:-}
+      BREAK_GLASS_PASSWORD_SHA256: ${BREAK_GLASS_PASSWORD_SHA256:-}
+      BREAK_GLASS_MINUTES: ${BREAK_GLASS_MINUTES:-15}
       AUTH_SEED_ENABLED: ${AUTH_SEED_ENABLED:-false}
       SEED_OWNER_EMAIL: ${SEED_OWNER_EMAIL:-}
       SEED_OWNER_PASSWORD: ${SEED_OWNER_PASSWORD:-}
@@ -255,6 +258,8 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-shop}
       CATALOG_READER_DB_PASSWORD: ${CATALOG_READER_DB_PASSWORD}
       PUBLIC_ASSET_BASE_URL: ${PUBLIC_ASSET_BASE_URL}
+      PUBLIC_AUTH_ISSUER_URL: ${PUBLIC_AUTH_ISSUER_URL}
+      INTERNAL_AUTH_JWKS_URL: http://auth-service:8081/oauth2/jwks
       GATEWAY_SECRET: ${GATEWAY_SECRET}
     depends_on:
       commerce-migrate: { condition: service_completed_successfully }
@@ -280,6 +285,8 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-shop}
       INTELLIGENCE_DB_PASSWORD: ${INTELLIGENCE_DB_PASSWORD}
       MAX_CONCURRENT_INFERENCES: "4"
+      PUBLIC_AUTH_ISSUER_URL: ${PUBLIC_AUTH_ISSUER_URL}
+      INTERNAL_AUTH_JWKS_URL: http://auth-service:8081/oauth2/jwks
       GATEWAY_SECRET: ${GATEWAY_SECRET}
     depends_on:
       commerce-migrate: { condition: service_completed_successfully }
@@ -295,6 +302,20 @@ services:
       interval: 10s
       timeout: 3s
       retries: 10
+
+  # The operator's way in when the BFF is down (docs/break-glass.md): Ensuretech's
+  # "VPN to the private network", as a throwaway container on the app network.
+  # It holds no secrets of its own; scripts/breakglass.sh passes them per run.
+  opsbox:
+    image: python:3.12-slim
+    profiles: ["ops"]
+    entrypoint: ["python", "/scripts/breakglass.py"]
+    volumes:
+      - ./scripts:/scripts:ro
+    networks: [app]
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
 
 networks:
   edge: {}                  # the BFF's public side

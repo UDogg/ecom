@@ -1,6 +1,6 @@
 from rest_framework.permissions import BasePermission
 
-from .auth import CUSTOMER, SHOP_OWNER
+from .auth import CUSTOMER, SHOP_OWNER, SYSTEM
 
 
 class IsCustomer(BasePermission):
@@ -15,3 +15,11 @@ class IsShopOwner(BasePermission):
     def has_permission(self, request, view):
         user = request.user
         return bool(user and user.has_role(SHOP_OWNER))
+
+
+class IsSystem(BasePermission):
+    """A service account's SYSTEM token: operational endpoints only."""
+
+    def has_permission(self, request, view):
+        user = request.user
+        return bool(user and user.has_role(SYSTEM) and user.id is None)

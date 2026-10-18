@@ -142,3 +142,50 @@ def test_unknown_product_falls_back_to_popular(db_recommender):
     rec, _ = db_recommender
     out = rec.recommend(str(uuid.uuid4()), 1)
     assert out["strategy"] == "popular" and out["items"][0]["sku"] == "CANDLE"
+
+
+# ---- privileged tokens -------------------------------------------------------
+
+def _key_pair():
+    import jwt as pyjwt
+    from cryptography.hazmat.primitives.asymmetric import rsa
+
+    private = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    public = json.loads(pyjwt.algorithms.RSAAlgorithm.to_jwk(private.public_key()))
+    return private, {**public, "kid": "k1", "use": "sig", "alg": "RS256"}
+
+
+PRIVATE, PUBLIC_JWK = _key_pair()
+
+
+def rs256(**claims):
+    import jwt as pyjwt
+
+    base = {"iss": "http://bff", "exp": int(time.time()) + 60, **claims}
+    return pyjwt.encode(base, PRIVATE, algorithm="RS256", headers={"kid": "k1"})
+
+
+def privileged_client():
+    from app.tokens import JWKSCache, PrivilegedTokens
+
+    tokens = PrivilegedTokens(JWKSCache("x", fetch=lambda url: {"keys": [PUBLIC_JWK]}), issuer="http://bff")
+    return TestClient(create_app(recommender=StubRecommender(), gateway_secret=SECRET, allow_unguarded=False,
+                                 privileged=tokens))
+
+
+@pytest.mark.parametrize("claims,admitted", [
+    ({"sub": "svc:svc_ops", "roles": ["system"], "aud": "core", "service": "ops"}, True),
+    ({"sub": "u1", "roles": ["customer"], "aud": "core", "break_glass": True, "bg_by": "svc_ops"}, True),
+    ({"sub": "u1", "roles": ["customer"], "aud": "bff"}, False),                  # an ordinary user's token
+    ({"sub": "u1", "aud": "bff", "break_glass": True}, False),                    # wrong audience
+    ({"sub": "u1", "roles": ["system"], "aud": "core"}, False),                   # system on a person
+    ({"sub": "svc:x", "roles": ["system"], "aud": "core", "exp": int(time.time()) - 3600}, False),  # expired
+])
+def test_privileged_tokens_and_only_they_skip_the_bff(claims, admitted, caplog):
+    resp = privileged_client().get("/api/intelligence/recommendations",
+                                   headers={"Authorization": f"Bearer {rs256(**claims)}"})
+    assert (resp.status_code == 200) is admitted, resp.status_code
+    if admitted:
+        assert "PRIVILEGED request without the BFF" in caplog.text
+    else:
+        assert resp.content == b""
