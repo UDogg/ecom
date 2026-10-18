@@ -122,7 +122,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /login", s.proxyAuthPage)
 	mux.HandleFunc("POST /login", s.proxyAuthPage)
 	mux.HandleFunc("GET /auth-ui.css", s.proxyAuthPage) // the sign-in page's stylesheet
-	s.routes(mux)                                          // the contract's endpoints (internal/contract/routes.go)
+	s.routes(mux)                                       // the contract's endpoints (internal/contract/routes.go)
 	mux.HandleFunc("/api/", s.notFound)
 	mux.HandleFunc("/auth/", s.notFound)
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
