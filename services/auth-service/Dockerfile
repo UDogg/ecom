@@ -17,7 +17,7 @@ RUN java -Djarmode=tools -jar /app.jar extract --destination /app \
           --include-locales=en --strip-debug --no-man-pages --no-header-files --compress=zip-6 \
           --generate-cds-archive --output /jre
 
-FROM alpine:3.22
+FROM alpine:3.24
 RUN addgroup -S app && adduser -S -G app -u 10001 app \
     && mkdir -p /var/lib/auth && chown app:app /var/lib/auth
 COPY --from=runtime /jre /opt/jre
