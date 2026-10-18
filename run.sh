@@ -5,6 +5,7 @@
 #   ./run.sh --no-build      the same, using images already built
 #   ./run.sh check           only check tools, ports and configuration; start nothing
 #   ./run.sh bench [secs]    throughput and latency through the BFF (start it with RATE_DEFAULT_PER_MINUTE raised)
+#   ./run.sh stress [args]   the gamified stress arena: thousands of shoppers + a red team at the gate (stress/arena.py)
 #   ./run.sh status          health of every container
 #   ./run.sh logs [SERVICE]  follow logs (all services, or one)
 #   ./run.sh down            stop everything (data is kept)
@@ -169,8 +170,15 @@ case "${1:-up}" in
     [ $FAIL = 0 ] && grn "All tests passed." || { red "Some tests failed."; exit 1; };;
   scenario) python3 tests/scenarios/scenario_c.py;;
   bench) shift; bench/run.sh "$@";;
+  stress)
+    shift
+    envval RATE_DEFAULT_PER_MINUTE >/dev/null
+    rate="$(envval RATE_DEFAULT_PER_MINUTE)"
+    [ -n "$rate" ] && [ "$rate" -lt 100000 ] 2>/dev/null && \
+      warn "RATE_DEFAULT_PER_MINUTE=$rate: shoppers will hit the limiter (shown as 429s). Raise it and restart for peak throughput."
+    exec python3 stress/arena.py "$@";;
   breakglass) shift; exec scripts/breakglass.sh "$@";;
   api) shift; exec python3 scripts/bff.py "$@";;
-  -h|--help|help) sed -n '2,16p' "$0";;
-  *) red "unknown command: $1"; sed -n '2,16p' "$0"; exit 2;;
+  -h|--help|help) sed -n '2,17p' "$0";;
+  *) red "unknown command: $1"; sed -n '2,17p' "$0"; exit 2;;
 esac

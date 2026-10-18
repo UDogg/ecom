@@ -21,6 +21,10 @@ bin/
 bench/results/*
 !bench/results/.gitkeep
 
+# Stress arena runs (each run writes a JSONL log and an HTML scorecard)
+stress/reports/*
+!stress/reports/.gitkeep
+
 .DS_Store
 /.bench-loadgen
 /_site/
