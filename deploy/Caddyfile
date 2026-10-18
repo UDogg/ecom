@@ -1,0 +1,19 @@
+# TLS for SITE_ADDRESS (certificate from Let's Encrypt, renewed automatically), then the BFF.
+{
+	{$ACME_EMAIL_DIRECTIVE}
+	servers {
+		protocols h1 h2 h3
+	}
+}
+
+{$SITE_ADDRESS} {
+	# The storefront's files arrive precompressed from the BFF; compress API answers here.
+	encode zstd gzip
+	reverse_proxy bff:8080 {
+		header_up X-Forwarded-Proto https
+	}
+	log {
+		output stdout
+		format json
+	}
+}

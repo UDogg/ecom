@@ -7,11 +7,30 @@
 | | |
 |---|---|
 | **Type** | Architecture showcase + proof of concept |
-| **Status** | In progress: Phases 1 to 3 built, plus a Go BFF with every core service gated ([ADR 012](docs/adr/012-bff-and-gated-core.md)); see [Implementation Roadmap](#22-implementation-roadmap) |
+| **Status** | Phases 1 to 3 built, plus a Go BFF with every core service gated ([ADR 012](docs/adr/012-bff-and-gated-core.md)), payments, the storefront and admin, and an AWS deployment; see [Implementation Roadmap](#22-implementation-roadmap) |
 | **Runs on** | Docker Compose, free and open-source components only |
 | **Shop owner can** | Sign in to an admin panel, add products (with images), edit them, adjust stock, and remove them |
-| **Live demo** | GitHub Pages, with the whole architecture simulated in the browser (see [section 24](#24-github-pages-demo-mode)) |
+| **Live demo** | GitHub Pages: the real storefront with an in-browser backend, plus the docs (`site/`, [section 24](#24-github-pages-demo-mode)) |
 | **Deploys by** | Changing environment variables (base URLs, secrets, hostnames), with no code changes |
+
+### Start here
+
+```bash
+./run.sh                         # everything, end to end: checks, secrets, build, start, seed → http://localhost:8080
+./run.sh test | scenario | bench # the suites, the broker-outage scenario, the benchmark
+AWS_REGION=eu-west-1 deploy/aws/deploy.sh   # one Graviton instance with HTTPS, about $19 a month
+```
+
+| | |
+|---|---|
+| The storefront and admin | [`web/`](web/README.md), served by the BFF |
+| The BFF and its route table | [`services/bff`](services/bff/README.md) |
+| Speed, footprint, vertical scaling | [`docs/performance.md`](docs/performance.md) |
+| Deploying and operating on AWS, cost | [`docs/aws.md`](docs/aws.md) |
+| Break-glass and service accounts | [`docs/break-glass.md`](docs/break-glass.md) |
+| Keeping dependencies current | [`docs/dependency-updates.md`](docs/dependency-updates.md) |
+
+The sections below are the original design document; where the build differs, the files above are current.
 
 ---
 
@@ -283,20 +302,16 @@ for finer control.
 
 ### Local URLs
 
+Only the BFF is published; every core service is on private networks.
+
 | What | URL |
 |---|---|
-| Storefront | http://localhost:3000 |
-| **Admin panel** | http://localhost:3000/admin |
-| API gateway | http://localhost:8080 |
+| **Storefront** (served by the BFF) | http://localhost:8080 |
+| **Admin panel** (sign in as the owner) | http://localhost:8080/admin |
 | Sign in (through the BFF) | http://localhost:8080/auth/login |
-| Commerce API docs (OpenAPI) | http://localhost:8080/api/commerce/docs |
-| Catalog reader health | http://localhost:8082/healthz |
-| Intelligence API docs | http://localhost:8001/docs |
-| RabbitMQ management | http://localhost:15672 |
-| MinIO console | http://localhost:9001 |
-| Mailpit inbox | http://localhost:8025 |
-| Jaeger (observability profile) | http://localhost:16686 |
-| Grafana (observability profile) | http://localhost:3001 |
+| API (through the BFF) | http://localhost:8080/api/... |
+| RabbitMQ management (developer tool) | http://localhost:15672 |
+| Mailpit inbox (developer tool) | http://localhost:8025 |
 
 ### Seeded dev accounts
 
@@ -336,14 +351,10 @@ Mixing them up is the most common source of bugs (especially OIDC issuer mismatc
 # ------------------------------------------------------------------
 # Public URLs (what the BROWSER sees). Change these when deploying.
 # ------------------------------------------------------------------
-PUBLIC_WEB_URL=http://localhost:3000
-PUBLIC_API_BASE_URL=http://localhost:8080
-PUBLIC_AUTH_ISSUER_URL=http://localhost:8081
+PUBLIC_API_BASE_URL=http://localhost:8080        # the BFF: storefront, API and sign-in on one origin
+PUBLIC_WEB_URL=${PUBLIC_API_BASE_URL}
+PUBLIC_AUTH_ISSUER_URL=${PUBLIC_API_BASE_URL}
 PUBLIC_ASSET_BASE_URL=http://localhost:9000/product-images
-
-# Next.js reads NEXT_PUBLIC_* at build time; keep them derived from the above
-NEXT_PUBLIC_API_BASE_URL=${PUBLIC_API_BASE_URL}
-NEXT_PUBLIC_AUTH_ISSUER_URL=${PUBLIC_AUTH_ISSUER_URL}
 
 # ------------------------------------------------------------------
 # Internal URLs (service to service). Usually unchanged in Compose.
@@ -415,8 +426,7 @@ LOG_LEVEL=info
 
 - **OIDC issuer:** the `iss` claim must equal `PUBLIC_AUTH_ISSUER_URL`, while services fetch keys from `INTERNAL_AUTH_JWKS_URL`. They differ in Docker, and that is intentional.
 - **Product image URLs:** the browser cannot reach `minio:9000`. Uploads use presigned URLs signed against `S3_PUBLIC_ENDPOINT_URL`.
-- **`NEXT_PUBLIC_*` variables** are baked into the frontend at build time. Changing them requires rebuilding `web`.
-- **CORS:** `CORS_ALLOWED_ORIGINS` must contain the exact public web origin, with scheme and port.
+- **One origin:** the BFF serves the storefront, the API and sign-in, so there is no CORS to configure. Changing `PUBLIC_API_BASE_URL` needs no frontend rebuild.
 - **Secrets:** `.env` is git-ignored. Only `.env.example` is committed, and it must contain placeholders only.
 
 ---
@@ -1350,6 +1360,11 @@ Begin with a small but realistic workflow, **not** a large collection of service
 ---
 
 ## 24. GitHub Pages Demo Mode
+
+> **As built:** the demo is the real storefront (`web/`) built with `npm run build:demo`, which swaps the
+> HTTP client for an in-browser backend implementing the same API and rules (`web/src/api/demo.ts`). The
+> Pages site (`site/`, deployed by `.github/workflows/pages.yml`) adds a landing page and the docs. The rest
+> of this section is the original design and is kept for reference.
 
 GitHub Pages serves **static files only**: no servers, no containers, no databases, no custom response headers. The full stack cannot run there. What *can* run there is a **browser-hosted simulation** of the architecture, where each "service" is a Web Worker or WebAssembly module and the browser plays the role of the network. The same frontend then switches to the real backend with a single environment variable.
 

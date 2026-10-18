@@ -11,7 +11,7 @@ and no deprecation turns into a migration project.
 |---|---|---|
 | pip | the five Python services (`requirements*.txt`, exact pins) | minor + patch grouped; each major alone |
 | gomod | `services/bff`, `services/catalog-reader`, `bench/loadgen`, `tools/go` | minor + patch grouped; each major alone |
-| npm | `web` (Preact, Vite, TypeScript, Vitest; exact pins) | minor + patch grouped; each major alone |
+| npm | `web` (Preact, Vite, TypeScript, Vitest) and `site` (marked); exact pins | minor + patch grouped; each major alone |
 | maven | `services/auth-service` (Spring Boot parent and plugins) | minor + patch grouped; each major alone |
 | docker | base images of every Dockerfile | patch grouped; a new runtime (`python:3.15`, `golang:1.28`) alone |
 | docker-compose | Postgres, RabbitMQ, Mailpit, opsbox | patch grouped; others alone; no Postgres majors (see below) |

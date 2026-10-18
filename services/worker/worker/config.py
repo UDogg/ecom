@@ -30,7 +30,7 @@ class Config:
     mail_from: str = _env("MAIL_FROM", "orders@shop.local")
     owner_alert_email: str = _env("OWNER_ALERT_EMAIL", "owner@shop.local")
     low_stock_threshold: int = field(default_factory=lambda: int(os.environ.get("LOW_STOCK_THRESHOLD", "5")))
-    public_web_url: str = _env("PUBLIC_WEB_URL", "http://localhost:3000")
+    public_web_url: str = _env("PUBLIC_WEB_URL", "http://localhost:8080")
     health_port: int = field(default_factory=lambda: int(os.environ.get("HEALTH_PORT", "8090")))
     max_backoff_seconds: float = field(default_factory=lambda: float(os.environ.get("WORKER_MAX_BACKOFF_SECONDS", "30")))
 

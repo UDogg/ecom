@@ -4,6 +4,7 @@
 #   ./run.sh                 check the machine, prepare secrets, build, start, wait until healthy, seed, show where things are
 #   ./run.sh --no-build      the same, using images already built
 #   ./run.sh check           only check tools, ports and configuration; start nothing
+#   ./run.sh bench [secs]    throughput and latency through the BFF (start it with RATE_DEFAULT_PER_MINUTE raised)
 #   ./run.sh status          health of every container
 #   ./run.sh logs [SERVICE]  follow logs (all services, or one)
 #   ./run.sh down            stop everything (data is kept)
@@ -82,15 +83,21 @@ wait_healthy() {
 }
 
 summary() {
-  local owner customer
+  local owner customer url
   owner="$(envval SEED_OWNER_EMAIL)"; customer="$(envval SEED_CUSTOMER_EMAIL)"
+  url="$(envval PUBLIC_API_BASE_URL)"; url="${url:-http://localhost:8080}"
   echo
   bold "Babel Bazaar is running. Only the BFF has a public port; every core service refuses anything it did not sign."
   cat <<EOF
 
-  API and sign-in (BFF)    http://localhost:8080        sign in: http://localhost:8080/auth/login
+  The shop                 $url        storefront, admin ($url/admin), sign-in, API
+EOF
+  if [ -z "$(envval SITE_ADDRESS)" ]; then cat <<EOF
   Mail (Mailpit)           http://localhost:8025
   RabbitMQ console         http://localhost:15672       user $(envval RABBITMQ_USER), password in .env (RABBITMQ_PASSWORD)
+EOF
+  fi
+  cat <<EOF
 
   Shop owner               $owner   password in .env (SEED_OWNER_PASSWORD)
   Customer                 $customer   password in .env (SEED_CUSTOMER_PASSWORD)
@@ -100,7 +107,7 @@ summary() {
     ./run.sh api --role owner GET /api/admin/dashboard
     ./run.sh breakglass system GET commerce /api/commerce/ops/status      SYSTEM, no BFF
     ./run.sh breakglass users                                             then: breakglass call USER_ID "why" ...
-    ./run.sh status | logs bff | scenario | down
+    ./run.sh status | logs bff | scenario | bench | down
 EOF
 }
 
@@ -161,6 +168,7 @@ case "${1:-up}" in
     fi
     [ $FAIL = 0 ] && grn "All tests passed." || { red "Some tests failed."; exit 1; };;
   scenario) python3 tests/scenarios/scenario_c.py;;
+  bench) shift; bench/run.sh "$@";;
   breakglass) shift; exec scripts/breakglass.sh "$@";;
   api) shift; exec python3 scripts/bff.py "$@";;
   -h|--help|help) sed -n '2,16p' "$0";;

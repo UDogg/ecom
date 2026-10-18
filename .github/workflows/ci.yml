@@ -208,6 +208,12 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - run: bash -n run.sh scripts/breakglass.sh
+      - run: python3 scripts/sizing.py 2048 && python3 scripts/sizing.py 65536 >/dev/null
       - run: python3 scripts/devsecrets.py ensure || test $? = 3   # fresh .env with random secrets, as ./run.sh does
       - run: docker compose --profile core --profile ops config --quiet
+      - name: The production overlay and the AWS stack are valid
+        run: |
+          SITE_ADDRESS=ci.example.com COMPOSE_FILE=docker-compose.yml:deploy/compose.prod.yml docker compose --profile core config --quiet
+          bash -n deploy/aws/bootstrap.sh deploy/aws/deploy.sh deploy/aws/update.sh db/tune/postgres.sh bench/run.sh
+          pip install --quiet cfn-lint && cfn-lint deploy/aws/template.yml
       - run: docker compose --profile core build

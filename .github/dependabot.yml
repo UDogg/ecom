@@ -36,7 +36,7 @@ updates:
         update-types: [minor, patch]
 
   - package-ecosystem: npm
-    directory: /web
+    directories: [/web, /site]
     schedule: { interval: weekly, day: monday, time: "04:00", timezone: Etc/UTC }
     commit-message: { prefix: "deps(web)" }
     groups:

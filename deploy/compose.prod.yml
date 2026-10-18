@@ -1,0 +1,71 @@
+# Production overlay: docker-compose.yml plus this file, for a single host on the internet
+# (deploy/aws sets COMPOSE_FILE to both, so ./run.sh and `docker compose` use it as is).
+#
+# * Caddy is the only thing with public ports (80, 443). It gets and renews the TLS certificate
+#   for SITE_ADDRESS by itself and forwards to the BFF over the edge network.
+# * The developer tools lose their host ports (psql, RabbitMQ's UI, Mailpit); reach them with
+#   SSM port forwarding when needed (docs/aws.md).
+# * Everything restarts on failure and after a reboot.
+x-always: &always
+  restart: unless-stopped
+
+services:
+  caddy:
+    image: caddy:2.10-alpine
+    profiles: ["core", "full"]
+    <<: *always
+    environment:
+      SITE_ADDRESS: ${SITE_ADDRESS:?set SITE_ADDRESS, e.g. shop.example.com or 203.0.113.7.sslip.io}
+      ACME_EMAIL_DIRECTIVE: ${ACME_EMAIL:+email ${ACME_EMAIL}}   # Let's Encrypt expiry notices, when an address is given
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    ports: ["80:80", "443:443", "443:443/udp"]
+    networks: [edge]
+    mem_limit: 128M
+    cpu_shares: 2048
+    depends_on:
+      bff: { condition: service_healthy }
+    read_only: true
+    cap_drop: [ALL]
+    cap_add: [NET_BIND_SERVICE]
+    security_opt: ["no-new-privileges:true"]
+
+  bff:
+    <<: *always
+    ports: !reset []                   # only Caddy is public
+    environment:
+      TRUSTED_PROXY_CIDRS: 172.30.0.0/24   # the edge network: Caddy's X-Forwarded-For is believed, nobody else's
+      COOKIE_SECURE: "true"
+  postgres:
+    <<: *always
+    ports: !reset []
+  rabbitmq:
+    <<: *always
+    ports: !reset []
+  mailpit:
+    <<: *always
+    ports: !reset []
+  commerce-core:
+    <<: *always
+    build:
+      target: prod                     # no test tools in production
+    image: babel-bazaar-commerce-core-prod
+  commerce-expirer: *always
+  auth-service: *always
+  outbox-publisher: *always
+  worker: *always
+  catalog-reader: *always
+  intelligence: *always
+  payments-sim: *always
+
+networks:
+  edge:
+    ipam:
+      config:
+        - subnet: 172.30.0.0/24
+
+volumes:
+  caddy_data: {}
+  caddy_config: {}

@@ -1,0 +1,8 @@
+{
+  "name": "babel-bazaar-site",
+  "private": true,
+  "type": "module",
+  "description": "The GitHub Pages site: landing page, docs rendered to HTML, and the storefront demo.",
+  "scripts": { "build": "node build.mjs" },
+  "devDependencies": { "marked": "18.1.1" }
+}

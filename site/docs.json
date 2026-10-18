@@ -1,0 +1,19 @@
+[
+  { "group": "Run it", "items": [
+    { "id": "aws", "title": "Deploying to AWS" },
+    { "id": "performance", "title": "Performance and footprint" },
+    { "id": "dependency-updates", "title": "Dependency updates" }
+  ]},
+  { "group": "How it is secured", "items": [
+    { "id": "adr/012-bff-and-gated-core", "title": "The BFF and the gated core" },
+    { "id": "request-signing", "title": "How the BFF signs every core request" },
+    { "id": "core-lockdown", "title": "Core lockdown" },
+    { "id": "break-glass", "title": "Break-glass and service accounts" },
+    { "id": "adr/011-auth-service-token-design", "title": "Tokens and sign-in" }
+  ]},
+  { "group": "How it stays correct", "items": [
+    { "id": "adr/010-event-consumers-use-plain-amqp", "title": "Events, outbox and consumers" },
+    { "id": "runbooks/broker-outage-and-replay", "title": "Runbook: broker outage and replay" },
+    { "id": "runbooks/queue-backlog", "title": "Runbook: queue backlog" }
+  ]}
+]
