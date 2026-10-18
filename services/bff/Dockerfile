@@ -1,5 +1,5 @@
 # The storefront (web/, passed in as the `web` build context), built and precompressed.
-FROM node:24-alpine AS storefront
+FROM node:26-alpine AS storefront
 WORKDIR /web
 COPY --from=web package.json package-lock.json ./
 RUN npm ci --no-audit --no-fund
