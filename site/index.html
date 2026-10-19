@@ -39,7 +39,9 @@
       </div>
       <p class="small" style="margin-top:14px;font-size:.9rem;color:var(--ink-3)">The demo runs entirely in your browser with the same rules as the real stack: try a declined card, a slow bank, or sign in as the owner and refund an order.</p>
     </div>
-    <a class="shot" href="demo/" aria-label="Open the demo">
+    <a class="shot" href="demo/" aria-label="Open the demo" data-tilt>
+      <canvas class="shot3d" aria-hidden="true"></canvas>
+      <span class="sheen" aria-hidden="true"></span>
       <svg viewBox="0 0 560 380" role="img" aria-label="The storefront">
         <rect width="560" height="380" fill="var(--paper)"/>
         <rect width="560" height="44" fill="var(--card)"/><circle cx="26" cy="22" r="10" fill="#d4482b"/>
@@ -62,14 +64,14 @@
     </a>
   </section>
 
-  <div class="stats">
-    <div class="stat"><b>13k</b><span>catalog requests a second on 4 cores, p50 1.8 ms</span></div>
-    <div class="stat"><b>29 KB</b><span>JavaScript and CSS for the whole storefront</span></div>
-    <div class="stat"><b>0</b><span>core services reachable without a BFF signature</span></div>
-    <div class="stat"><b>~$19</b><span>a month on AWS, one Graviton instance; resize with one parameter</span></div>
+  <div class="stats" data-reveal>
+    <div class="stat" data-tilt><b>13k</b><span>catalog requests a second on 4 cores, p50 1.8 ms</span></div>
+    <div class="stat" data-tilt><b>29 KB</b><span>JavaScript and CSS for the whole storefront</span></div>
+    <div class="stat" data-tilt><b>0</b><span>core services reachable without a BFF signature</span></div>
+    <div class="stat" data-tilt><b>~$19</b><span>a month on AWS, one Graviton instance; resize with one parameter</span></div>
   </div>
 
-  <section>
+  <section data-reveal>
     <h2>How a request travels</h2>
     <p class="lede">The browser only ever talks to the BFF. It holds the session, checks the role, validates every field against a route table compiled into it, and signs the call; each core service refuses anything it did not sign. Events leave through a transactional outbox, so nothing is lost when the broker is down.</p>
     <div class="diagram">
@@ -101,19 +103,49 @@
     </div>
   </section>
 
-  <section>
+  <section data-reveal>
     <h2>What makes it different</h2>
     <div class="cards">
-      <div class="card"><h3>The API is code</h3><p>Every route the BFF serves is one line of Go: its fields, its role, its upstream path, its response schema. No catch-all proxy; anything else is a 404 before it reaches a service.</p></div>
-      <div class="card"><h3>Correct under failure</h3><p>Stock is reserved at checkout, payments are idempotent and reconciled, a capture for an expired order is refunded automatically, and events survive a broker outage.</p></div>
-      <div class="card"><h3>Break-glass, audited</h3><p>When the BFF is down, operators get a 15-minute token acting as one named user, with a reason, recorded in an append-only table. Machine accounts get narrow SYSTEM tokens.</p></div>
-      <div class="card"><h3>Sized by the machine</h3><p>Postgres, the JVM, Go, gunicorn and uvicorn all size themselves from their container; the run script gives each a share of the instance. A bigger instance is used fully with no edits.</p></div>
-      <div class="card"><h3>Fast where it matters</h3><p>Public catalog reads are micro-cached and coalesced in the BFF; the storefront is precompressed in memory; queries have matching indexes; Java starts in 2.9 s from a class-data archive.</p></div>
-      <div class="card"><h3>Kept current</h3><p>Dependabot updates every ecosystem weekly, and CI fails on any deprecated API in Python, Go and Java, so updates stay small and boring.</p></div>
+      <div class="card" data-tilt data-reveal><h3>The API is code</h3><p>Every route the BFF serves is one line of Go: its fields, its role, its upstream path, its response schema. No catch-all proxy; anything else is a 404 before it reaches a service.</p></div>
+      <div class="card" data-tilt data-reveal><h3>Correct under failure</h3><p>Stock is reserved at checkout, payments are idempotent and reconciled, a capture for an expired order is refunded automatically, and events survive a broker outage.</p></div>
+      <div class="card" data-tilt data-reveal><h3>Break-glass, audited</h3><p>When the BFF is down, operators get a 15-minute token acting as one named user, with a reason, recorded in an append-only table. Machine accounts get narrow SYSTEM tokens.</p></div>
+      <div class="card" data-tilt data-reveal><h3>Sized by the machine</h3><p>Postgres, the JVM, Go, gunicorn and uvicorn all size themselves from their container; the run script gives each a share of the instance. A bigger instance is used fully with no edits.</p></div>
+      <div class="card" data-tilt data-reveal><h3>Fast where it matters</h3><p>Public catalog reads are micro-cached and coalesced in the BFF; the storefront is precompressed in memory; queries have matching indexes; Java starts in 2.9 s from a class-data archive.</p></div>
+      <div class="card" data-tilt data-reveal><h3>Kept current</h3><p>Dependabot updates every ecosystem weekly, and CI fails on any deprecated API in Python, Go and Java, so updates stay small and boring.</p></div>
     </div>
   </section>
 
-  <section class="two">
+  <section data-reveal>
+    <h2>See it in motion</h2>
+    <p class="lede">Three faces of the same stack — all live, all in your browser.</p>
+    <div class="carousel" data-carousel aria-roledescription="carousel">
+      <div class="slides">
+        <article class="slide on" style="--g1:#f7d6c4;--g2:#e9c4a8">
+          <div class="slide-copy"><span class="eyebrow">Storefront</span><h3>A shop worth browsing</h3>
+            <p>Forty products, real stock reservations, a cart and a checkout that charges once — with hover tilt, a 3D hero and image slideshows.</p>
+            <a class="btn primary" href="demo/">Open the storefront →</a></div>
+          <div class="slide-art" aria-hidden="true"><span class="orb" style="--c:var(--brand)"></span><span class="orb" style="--c:var(--accent)"></span><span class="orb" style="--c:var(--gold)"></span></div>
+        </article>
+        <article class="slide" style="--g1:#cfe9d8;--g2:#a8d9c4">
+          <div class="slide-copy"><span class="eyebrow">Shop-owner admin</span><h3>Run the business</h3>
+            <p>Add products, adjust stock with an audit trail, watch orders and refund straight to the card — behind the same signed gateway.</p>
+            <a class="btn" href="demo/#/admin">Open the admin →</a></div>
+          <div class="slide-art" aria-hidden="true"><span class="orb" style="--c:var(--accent)"></span><span class="orb" style="--c:var(--gold)"></span><span class="orb" style="--c:var(--brand)"></span></div>
+        </article>
+        <article class="slide" style="--g1:#f3dfb6;--g2:#e9c4a8">
+          <div class="slide-copy"><span class="eyebrow">Stress arena</span><h3>Watch it hold under load</h3>
+            <p>Thousands of shoppers and a red team at the gate, scored live — every attack refused, zero bytes stolen.</p>
+            <a class="btn" href="stress.html">Open the stress arena →</a></div>
+          <div class="slide-art" aria-hidden="true"><span class="orb" style="--c:var(--gold)"></span><span class="orb" style="--c:var(--brand)"></span><span class="orb" style="--c:var(--accent)"></span></div>
+        </article>
+      </div>
+      <button class="cbtn prev" aria-label="Previous">‹</button>
+      <button class="cbtn next" aria-label="Next">›</button>
+      <div class="cdots" role="tablist" aria-label="Choose a highlight"></div>
+    </div>
+  </section>
+
+  <section class="two" data-reveal>
     <div>
       <h2>Run it locally</h2>
       <p class="lede">Docker and Python 3 are all it needs. One command checks the machine, generates secrets, builds, starts, waits for health and seeds the shop.</p>
@@ -133,5 +165,6 @@ deploy/aws/deploy.sh InstanceType=t4g.medium   # resize</pre>
   <footer>Babel Bazaar is a reference project. The demo's payments are simulated; no card is ever asked for.
     · <a href="demo/">Demo</a> · <a href="stress.html">Stress test</a> · <a href="docs/performance.html">Performance</a> · <a href="docs/adr/012-bff-and-gated-core.html">Architecture</a> · <a href="docs/aws.html">AWS and cost</a></footer>
 </div>
+<script type="module" src="landing.js"></script>
 </body>
 </html>

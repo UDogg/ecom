@@ -1,7 +1,9 @@
 import { api } from "../api";
 import { Art } from "../components/Art";
+import { Hero3D } from "../components/Hero3D";
 import { Icon } from "../components/Icon";
 import { Grid, ProductCard } from "../components/ProductCard";
+import { reveal, tiltLeave, tiltMove } from "../lib/fx";
 import { useAsync, useTitle } from "../lib/hooks";
 import { href } from "../lib/router";
 import { recent } from "../state/recent";
@@ -17,6 +19,7 @@ export function Home() {
   return (
     <div class="wrap">
       <section class="hero">
+        <Hero3D class="hero-bg" />
         <div class="hero-inner">
           <div>
             <span class="eyebrow">New season · Free delivery over $50</span>
@@ -27,20 +30,26 @@ export function Home() {
               <a class="btn btn-lg" href={href("/search?category=coffee")}>Coffee & tea</a>
             </div>
           </div>
-          <div class="hero-collage" aria-hidden="true">
-            {hero.map((p) => <a class="tile" key={p.id} href={href(`/products/${p.id}`)} tabIndex={-1}><Art product={p} size="lg" /></a>)}
+          <div class="hero-collage">
+            {hero.map((p) => (
+              <a class="tile tilt" key={p.id} href={href(`/products/${p.id}`)} aria-label={p.name}
+                onPointerMove={(e) => tiltMove(e, 10)} onPointerLeave={tiltLeave}>
+                <Art product={p} size="lg" />
+                <span class="sheen" aria-hidden="true" />
+              </a>
+            ))}
           </div>
         </div>
       </section>
 
-      <div class="perks">
+      <div class="perks" ref={reveal}>
         <div class="perk"><Icon name="truck" /><span><b>Free delivery</b><span class="muted">on orders over $50</span></span></div>
         <div class="perk"><Icon name="shield" /><span><b>Stock held for you</b><span class="muted">15 minutes at checkout</span></span></div>
         <div class="perk"><Icon name="refresh" /><span><b>Easy refunds</b><span class="muted">straight to your card</span></span></div>
         <div class="perk"><Icon name="card" /><span><b>Charged once</b><span class="muted">even if you click twice</span></span></div>
       </div>
 
-      <section class="section">
+      <section class="section" ref={reveal}>
         <div class="section-head"><h2>Shop by category</h2></div>
         <div class="cats">
           {(cats.data ?? []).map((c) => (
@@ -52,7 +61,7 @@ export function Home() {
         </div>
       </section>
 
-      <section class="section">
+      <section class="section" ref={reveal}>
         <div class="section-head">
           <div><span class="eyebrow">Just in</span><h2>New arrivals</h2></div>
           <a class="btn btn-sm" href={href("/search?sort=newest")}>See all <Icon name="arrow" size={16} /></a>
@@ -61,13 +70,13 @@ export function Home() {
       </section>
 
       {picks.data && picks.data.items.length > 0 && (
-        <section class="section">
+        <section class="section" ref={reveal}>
           <div class="section-head"><div><span class="eyebrow">Popular right now</span><h2>Picked for you</h2></div></div>
           <PickRail ids={picks.data.items.map((i) => i.product_id)} />
         </section>
       )}
 
-      <section class="section">
+      <section class="section" ref={reveal}>
         <div class="section-head">
           <div><span class="eyebrow">Small luxuries</span><h2>Under $30</h2></div>
           <a class="btn btn-sm" href={href("/search?max_price=3000&sort=price_asc")}>See all <Icon name="arrow" size={16} /></a>
@@ -76,7 +85,7 @@ export function Home() {
       </section>
 
       {recent.value.length > 0 && (
-        <section class="section">
+        <section class="section" ref={reveal}>
           <div class="section-head"><h2>Recently viewed</h2></div>
           <div class="rail">{recent.value.map((p) => <ProductCard key={p.id} product={p} />)}</div>
         </section>

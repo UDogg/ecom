@@ -20,9 +20,19 @@ const published = new Map(groups.flatMap((g) => g.items).map((d) => [d.id, d]));
 
 rmSync(out, { recursive: true, force: true });
 mkdirSync(out, { recursive: true });
-for (const f of ["index.html", "site.css", "stress.html"]) cpSync(join(here, f), join(out, f));
+for (const f of ["index.html", "site.css", "stress.html", "landing.js"]) cpSync(join(here, f), join(out, f));
 cpSync(join(root, "web/public/favicon.svg"), join(out, "favicon.svg"));
 writeFileSync(join(out, ".nojekyll"), "");
+
+// Vendor three.js (the landing page's WebGL hero) from web's node_modules, so the site carries no
+// runtime CDN dependency. The demo build below runs `npm ci` in web/, which installs it.
+const threeSrc = join(root, "web/node_modules/three/build/three.module.js");
+if (existsSync(threeSrc)) {
+  mkdirSync(join(out, "vendor"), { recursive: true });
+  cpSync(threeSrc, join(out, "vendor/three.module.js"));
+} else {
+  console.warn("three.module.js not found in web/node_modules; the landing WebGL hero will fall back to the static mock");
+}
 
 // ── docs ────────────────────────────────────────────────────────────────────
 const esc = (s) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);

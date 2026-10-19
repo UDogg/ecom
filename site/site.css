@@ -80,3 +80,62 @@ footer { margin-top: 64px; padding: 28px 0 40px; border-top: 1px solid var(--lin
   .docs aside { position: static; }
   .top nav { gap: 14px; }
 }
+
+/* ─── Motion & 3D (landing.js) ──────────────────────────────────────────────
+   Pointer tilt, a WebGL hero (three.js vendored under /vendor), a highlights
+   carousel and scroll-reveal. All cosmetic and gated: with JS off, reduced
+   motion, or no WebGL, the static hero and content show and nothing hides. */
+[data-tilt] { will-change: transform; }
+
+.shot { position: relative; background: radial-gradient(130% 130% at 75% 12%, color-mix(in srgb, var(--brand) 14%, var(--card)), var(--card) 60%); }
+.shot[data-tilt] { transform: perspective(1000px) rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg)); transition: transform .3s cubic-bezier(.2, .8, .2, 1); transform-style: preserve-3d; }
+.shot svg { position: relative; z-index: 0; transition: opacity .8s; }
+.shot3d { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 1; opacity: 0; transition: opacity .9s; pointer-events: none; }
+.shot3d.on { opacity: 1; }
+.shot3d.on ~ svg { opacity: 0; }
+.shot .sheen { position: absolute; inset: 0; z-index: 2; pointer-events: none; opacity: 0; transition: opacity .3s;
+  background: radial-gradient(220px circle at var(--mx, 50%) var(--my, 50%), rgb(255 255 255 / 38%), transparent 60%); mix-blend-mode: soft-light; }
+.shot:hover .sheen, .shot.tilting .sheen { opacity: 1; }
+
+.card[data-tilt] { transform: perspective(900px) rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg)) translateY(var(--lift, 0)); transition: transform .3s cubic-bezier(.2, .8, .2, 1), box-shadow .3s, border-color .3s; }
+.card[data-tilt]:hover { --lift: -4px; box-shadow: 0 18px 40px -16px rgb(23 19 15 / 30%); border-color: var(--ink-3); }
+.stat[data-tilt] { transform: perspective(900px) rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg)); transition: transform .25s cubic-bezier(.2, .8, .2, 1); }
+
+/* scroll-reveal (only hides once JS has marked the page) */
+[data-reveal] { transition: opacity .6s cubic-bezier(.2, .8, .2, 1), transform .6s cubic-bezier(.2, .8, .2, 1); transition-delay: var(--reveal-delay, 0ms); }
+.js [data-reveal] { opacity: 0; transform: translateY(18px); }
+.js [data-reveal].in { opacity: 1; transform: none; }
+
+/* highlights carousel */
+.carousel { position: relative; border-radius: 20px; overflow: hidden; border: 1px solid var(--line); box-shadow: 0 24px 60px -24px rgb(23 19 15 / 30%); }
+.carousel .slides { position: relative; min-height: 320px; }
+.slide { position: absolute; inset: 0; display: grid; grid-template-columns: 1.1fr 1fr; gap: 24px; align-items: center;
+  padding: 40px; opacity: 0; transform: translateX(20px) scale(.99); transition: opacity .6s, transform .6s;
+  background: linear-gradient(120deg, var(--g1), var(--g2)); pointer-events: none; }
+.slide.on { opacity: 1; transform: none; pointer-events: auto; }
+.slide-copy .eyebrow { color: #9a3b24; }
+.slide-copy h3 { font-family: var(--serif); font-size: clamp(1.5rem, 1.2rem + 1vw, 2rem); margin: 6px 0 10px; color: #1d1610; }
+.slide-copy p { color: #3a2f24; max-width: 42ch; margin: 0 0 18px; }
+.slide-copy .btn { background: #fff; color: #1d1610; border-color: transparent; }
+.slide-copy .btn.primary { background: var(--brand); color: #fff; }
+.slide-art { position: relative; height: 210px; }
+.slide-art .orb { position: absolute; border-radius: 50%; background: radial-gradient(circle at 35% 30%, rgb(255 255 255 / 70%), var(--c)); box-shadow: 0 22px 50px -14px rgb(0 0 0 / 35%); animation: floaty 6s ease-in-out infinite; }
+.slide-art .orb:nth-child(1) { width: 130px; height: 130px; left: 8%; top: 8%; }
+.slide-art .orb:nth-child(2) { width: 92px; height: 92px; right: 16%; top: 34%; animation-delay: -2s; }
+.slide-art .orb:nth-child(3) { width: 72px; height: 72px; left: 34%; bottom: 2%; animation-delay: -4s; }
+@keyframes floaty { 50% { transform: translateY(-16px); } }
+.cbtn { position: absolute; top: 50%; transform: translateY(-50%); width: 40px; height: 40px; border-radius: 50%;
+  border: 1px solid rgb(0 0 0 / 10%); background: rgb(255 255 255 / 85%); color: #1d1610; cursor: pointer; font-size: 1.5rem; line-height: 1; z-index: 3; }
+.cbtn:hover { background: #fff; } .cbtn.prev { left: 12px; } .cbtn.next { right: 12px; }
+.cdots { position: absolute; bottom: 14px; left: 50%; transform: translateX(-50%); display: flex; gap: 8px; z-index: 3; }
+.cdots button { width: 8px; height: 8px; border-radius: 50%; border: none; background: rgb(23 19 15 / 28%); cursor: pointer; padding: 0; transition: width .3s, background .3s; }
+.cdots button[aria-selected="true"] { width: 22px; border-radius: 4px; background: #1d1610; }
+
+@media (max-width: 760px) {
+  .slide { grid-template-columns: 1fr; padding: 28px; } .slide-art { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-reveal], .js [data-reveal] { opacity: 1 !important; transform: none !important; transition: none; }
+  .shot3d { display: none; } .slide-art .orb { animation: none; }
+  [data-tilt] { transform: none !important; }
+}

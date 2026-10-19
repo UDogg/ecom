@@ -1,4 +1,6 @@
+import { useEffect, useRef } from "preact/hooks";
 import type { Product } from "../api";
+import { reveal, tiltLeave, tiltMove } from "../lib/fx";
 import { href } from "../lib/router";
 import { add, cartOpen } from "../state/cart";
 import { toast } from "../state/toast";
@@ -6,16 +8,25 @@ import { Art } from "./Art";
 import { Icon } from "./Icon";
 import { Price } from "./Price";
 
-export function ProductCard({ product: p }: { product: Product }) {
+export function ProductCard({ product: p, index = 0 }: { product: Product; index?: number }) {
+  const ref = useRef<HTMLElement>(null);
+  useEffect(() => reveal(ref.current, Math.min(index, 8) * 45), [p.id]);
   const quickAdd = (e: Event) => {
     e.preventDefault();
     add(p);
+    const el = ref.current;
+    if (el) {
+      el.classList.remove("added");
+      void el.offsetWidth; // restart the animation
+      el.classList.add("added");
+    }
     toast(`${p.name} added to your bag`, "ok", { label: "View bag", run: () => (cartOpen.value = true) });
   };
   return (
-    <article class="card">
+    <article ref={ref} class="card tilt" onPointerMove={tiltMove} onPointerLeave={tiltLeave}>
       <div class="media">
         <Art product={p} />
+        <span class="sheen" aria-hidden="true" />
         {!p.in_stock && <span class="flag badge bad">Sold out</span>}
       </div>
       <div class="body">
@@ -46,7 +57,7 @@ export function CardSkeleton() {
 export function Grid({ products, loading, count = 8 }: { products?: Product[]; loading?: boolean; count?: number }) {
   return (
     <div class="grid" aria-busy={loading}>
-      {loading && !products ? Array.from({ length: count }, (_, i) => <CardSkeleton key={i} />) : products?.map((p) => <ProductCard key={p.id} product={p} />)}
+      {loading && !products ? Array.from({ length: count }, (_, i) => <CardSkeleton key={i} />) : products?.map((p, i) => <ProductCard key={p.id} product={p} index={i} />)}
     </div>
   );
 }
