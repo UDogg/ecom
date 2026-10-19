@@ -1,6 +1,6 @@
 import { useEffect, useState } from "preact/hooks";
 import { api } from "../api";
-import { Art } from "../components/Art";
+import { Gallery } from "../components/Gallery";
 import { Icon } from "../components/Icon";
 import { Price } from "../components/Price";
 import { Stepper } from "../components/Stepper";
@@ -43,12 +43,7 @@ export function Product({ id }: { id: string }) {
         <span aria-current="page">{p.name}</span>
       </nav>
       <div class="pdp">
-        <div class="gallery">
-          <div class="main"><Art product={p} size="lg" /></div>
-          <div class="thumbs" aria-hidden="true">
-            {[0, 1, 2, 3].map((n) => <Art key={n} product={{ ...p, sku: `${p.sku}-${n}` }} size="sm" />)}
-          </div>
-        </div>
+        <Gallery product={p} />
         <div class="buybox">
           <span class="eyebrow">{p.category?.name}</span>
           <h1>{p.name}</h1>

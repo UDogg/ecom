@@ -450,3 +450,57 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
 }
+
+/* ─── Motion & 3D (fx.ts, Hero3D, Gallery) ──────────────────────────────────
+   Pointer tilt, a pointer-tracking sheen, the WebGL hero layer, the gallery
+   slideshow and scroll-reveal. All of it is cosmetic and degrades to nothing:
+   the reduced-motion block at the top of this file flattens every transition,
+   and fx.ts reveals content immediately when motion is not wanted. */
+.tilt { will-change: transform; }
+.sheen { position: absolute; inset: 0; pointer-events: none; opacity: 0; transition: opacity .3s var(--ease);
+  background: radial-gradient(220px circle at var(--mx, 50%) var(--my, 50%), rgb(255 255 255 / 40%), transparent 60%);
+  mix-blend-mode: soft-light; z-index: 3; }
+.tilt:hover .sheen, .tilt.tilting .sheen { opacity: 1; }
+
+.card.tilt { transform: perspective(1000px) rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg)) translate3d(0, var(--lift, 0px), 0);
+  transition: transform .3s var(--ease), box-shadow .3s, border-color .3s; }
+.card.tilt:hover { --lift: -4px; box-shadow: var(--shadow-3); border-color: var(--line-2); }
+.card.tilt.tilting { transition: box-shadow .3s, border-color .3s; }      /* follow the pointer without lag */
+@keyframes added { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--ok) 55%, transparent); } 100% { box-shadow: 0 0 0 16px transparent; } }
+.card.added { animation: added .6s var(--ease); }
+
+/* WebGL hero: a full-bleed canvas behind the hero, masked so the gems fill the right
+   side and fade out before the headline; the SVG product tiles float on top. */
+.hero-inner { position: relative; z-index: 1; }
+.hero3d { display: block; pointer-events: none; }
+.hero-bg { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 0;
+  -webkit-mask-image: linear-gradient(90deg, transparent 20%, #000 50%);
+  mask-image: linear-gradient(90deg, transparent 20%, #000 50%); }
+.hero-collage .tile { z-index: 2; }
+
+/* Gallery slideshow */
+.gallery .main { position: relative; }
+.gallery .main.tilt { transform: perspective(1200px) rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg));
+  transition: transform .3s var(--ease); outline: none; }
+.gallery .slide { position: absolute; inset: 0; opacity: 0; transition: opacity .6s var(--ease); }
+.gallery .slide.on { opacity: 1; }
+.gallery .slide .art { width: 100%; height: 100%; }
+.gallery .nav { position: absolute; top: 50%; transform: translateY(-50%); width: 38px; height: 38px; display: grid;
+  place-items: center; border-radius: 50%; border: 1px solid var(--line); background: color-mix(in srgb, var(--card) 86%, transparent);
+  color: var(--ink); backdrop-filter: blur(6px); opacity: 0; cursor: pointer; transition: opacity .25s, transform .25s; z-index: 4; }
+.gallery .main:hover .nav, .gallery .main:focus-within .nav { opacity: 1; }
+.gallery .nav:hover { transform: translateY(-50%) scale(1.08); }
+.gallery .nav.prev { left: 12px; } .gallery .nav.prev .icon { transform: rotate(180deg); }
+.gallery .nav.next { right: 12px; }
+.gallery .dots { position: absolute; bottom: 12px; left: 50%; transform: translateX(-50%); display: flex; gap: 6px; z-index: 4; }
+.gallery .dots span { width: 7px; height: 7px; border-radius: 50%; background: rgb(255 255 255 / 55%); box-shadow: 0 1px 2px rgb(0 0 0 / 25%); transition: width .3s, background .3s; }
+.gallery .dots span.on { width: 18px; border-radius: 4px; background: #fff; }
+.gallery .thumbs .thumb { padding: 0; border: 2px solid transparent; border-radius: 12px; overflow: hidden; cursor: pointer;
+  background: none; transition: border-color .2s, transform .2s; }
+.gallery .thumbs .thumb .art { border-radius: 10px; aspect-ratio: 1; display: block; width: 100%; }
+.gallery .thumbs .thumb:hover { transform: translateY(-2px); }
+.gallery .thumbs .thumb.on { border-color: var(--brand); }
+
+/* Scroll-reveal */
+.reveal { opacity: 0; transform: translateY(18px); transition: opacity .6s var(--ease), transform .6s var(--ease); transition-delay: var(--reveal-delay, 0ms); }
+.reveal.in { opacity: 1; transform: none; }
