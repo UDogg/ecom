@@ -3,6 +3,7 @@
 import { computed, effect, signal } from "@preact/signals";
 import { api, type Product } from "../api";
 import { read, write } from "../lib/store";
+import { track } from "../lib/telemetry";
 import { signedIn } from "./session";
 
 export interface CartItem {
@@ -62,6 +63,7 @@ effect(() => {
 });
 
 export function add(p: Product, quantity = 1) {
+  track("add_to_cart");
   const existing = cart.value.find((i) => i.product_id === p.id);
   if (existing) {
     setQuantity(p.id, existing.quantity + quantity);

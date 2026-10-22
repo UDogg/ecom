@@ -8,6 +8,7 @@ import { PickRail } from "./Home";
 import { useAsync, useTitle } from "../lib/hooks";
 import { href, navigate } from "../lib/router";
 import { add, cartOpen, FREE_SHIPPING_MINOR } from "../state/cart";
+import { track } from "../lib/telemetry";
 import { viewed } from "../state/recent";
 import { toast } from "../state/toast";
 import { price } from "../lib/format";
@@ -19,7 +20,7 @@ export function Product({ id }: { id: string }) {
   const [qty, setQty] = useState(1);
   const p = product.data;
   useTitle(p?.name);
-  useEffect(() => { if (p) viewed(p); setQty(1); }, [p?.id]);
+  useEffect(() => { if (p) { viewed(p); track("product_view"); } setQty(1); }, [p?.id]);
 
   if (product.error) return <NotFound what="product" />;
   if (!p) {

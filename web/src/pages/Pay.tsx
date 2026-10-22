@@ -7,6 +7,7 @@ import { Steps } from "./Checkout";
 import { shortId } from "../lib/format";
 import { useAsync, useTitle } from "../lib/hooks";
 import { href, navigate } from "../lib/router";
+import { track } from "../lib/telemetry";
 import { toast } from "../state/toast";
 import { NotFound } from "./NotFound";
 
@@ -54,7 +55,7 @@ export function Pay({ id }: { id: string }) {
     try {
       const next = await api.pay(id, card);
       setOrder(next);
-      if (next.status === "paid") toast("Payment received", "ok");
+      if (next.status === "paid") { track("order_paid"); toast("Payment received", "ok"); }
       if (next.status === "payment_failed") toast("Payment declined. Nothing was charged.", "error");
     } catch (e) {
       const err = e as ApiError;

@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Metrics · Babel Bazaar</title>
+<meta name="description" content="Live, anonymous usage metrics for the Babel Bazaar demo — visits, product views, add-to-cart, checkouts and orders. No cookies, no personal data.">
+<link rel="icon" href="favicon.svg">
+<link rel="stylesheet" href="site.css">
+<style>
+  .m { padding: 36px 0 8px; }
+  .m .eyebrow { color: var(--brand); }
+  .scope { display: inline-flex; align-items: center; gap: 8px; margin: 14px 0 0; padding: 8px 14px; border-radius: 999px;
+    border: 1px solid var(--line); background: var(--card); font-size: .86rem; color: var(--ink-2); }
+  .scope .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--ink-3); }
+  .scope.global .dot { background: var(--accent); box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 60%, transparent); animation: pulse 1.6s infinite; }
+  .scope.local .dot { background: var(--gold); }
+  @keyframes pulse { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 55%, transparent); } 70% { box-shadow: 0 0 0 9px transparent; } 100% { box-shadow: 0 0 0 0 transparent; } }
+  .tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-top: 22px; }
+  .tile { padding: 18px; border-radius: 16px; background: var(--card); border: 1px solid var(--line); }
+  .tile b { display: block; font: 700 2rem/1.05 var(--font); letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+  .tile.good b { color: var(--accent); }
+  .tile span { color: var(--ink-3); font-size: .82rem; }
+  .panel { margin-top: 18px; padding: 22px; border-radius: 18px; background: var(--card); border: 1px solid var(--line); }
+  .panel h2 { font-size: 1.1rem; margin: 0 0 4px; } .panel .lede { margin: 0 0 18px; }
+  .funnel { display: grid; gap: 10px; }
+  .frow { display: grid; grid-template-columns: 150px 1fr 120px; align-items: center; gap: 12px; }
+  .frow .lab { color: var(--ink-2); font-size: .9rem; }
+  .frow .track { height: 22px; border-radius: 8px; background: var(--paper-2); overflow: hidden; }
+  .frow .track > i { display: block; height: 100%; border-radius: 8px; background: linear-gradient(90deg, var(--brand), var(--gold)); transition: width .6s cubic-bezier(.2,.8,.2,1); }
+  .frow .val { text-align: right; font-variant-numeric: tabular-nums; color: var(--ink-2); font-size: .9rem; }
+  .frow .val b { color: var(--ink); } .frow .val .pct { color: var(--accent); }
+  .note { margin-top: 16px; font-size: .85rem; color: var(--ink-3); }
+  @media (max-width: 760px) { .tiles { grid-template-columns: repeat(2, 1fr); } .frow { grid-template-columns: 110px 1fr 90px; } }
+  @media (prefers-reduced-motion: reduce) { .scope.global .dot { animation: none; } .frow .track > i { transition: none; } }
+</style>
+</head>
+<body>
+<header class="top">
+  <a class="brand" href="./"><span class="mark">B</span> Babel Bazaar</a>
+  <nav><a href="demo/">Demo</a><a href="stress.html">Stress test</a><a href="metrics.html" aria-current="page">Metrics</a><a href="docs/aws.html">Docs</a><a href="https://github.com/UDogg/ecom">GitHub</a></nav>
+</header>
+
+<div class="wrap">
+  <section class="m">
+    <span class="eyebrow">Usage metrics</span>
+    <h1>How the demo is being used.</h1>
+    <p class="lede" style="max-width:62ch">Anonymous counts of a handful of product events from the live <a href="demo/">demo</a> and this site — visits, product views, add-to-cart, checkouts and orders. No cookies, no third parties, no personal data: a random visitor id in your browser lets unique visitors be counted without identifying anyone.</p>
+    <div class="scope" id="scope"><span class="dot"></span> <span id="scopeText">connecting…</span></div>
+
+    <div class="tiles">
+      <div class="tile good"><b id="t-visitors">—</b><span>unique visitors</span></div>
+      <div class="tile good"><b id="t-products">—</b><span>products shared by owners</span></div>
+      <div class="tile"><b id="t-orders">—</b><span>orders paid</span></div>
+      <div class="tile"><b id="t-addcart">—</b><span>add-to-cart events</span></div>
+    </div>
+
+    <div class="panel">
+      <h2>Shopper funnel</h2>
+      <p class="lede">From landing on the shop to paying — with the drop-off at each step.</p>
+      <div class="funnel" id="funnel"></div>
+      <p class="note" id="note"></p>
+    </div>
+
+    <footer>Metrics are served by an optional free Cloudflare Worker (<a href="https://github.com/UDogg/ecom/tree/main/deploy/pages-backend">deploy/pages-backend</a>). Until it is deployed, this page shows your own browser's tally. · <a href="demo/">Demo</a> · <a href="stress.html">Stress test</a> · <a href="./">Home</a></footer>
+  </section>
+</div>
+
+<script src="config.js"></script>
+<script>
+"use strict";
+(function () {
+  var $ = function (id) { return document.getElementById(id); };
+  var fmt = function (n) { return (n || 0).toLocaleString("en-US"); };
+  var STEPS = [
+    ["visit", "Visits"], ["product_view", "Product views"], ["add_to_cart", "Add to cart"],
+    ["checkout", "Checkout"], ["order_paid", "Orders paid"]
+  ];
+
+  function render(data, scope) {
+    var sc = $("scope"), ev = data.events || {};
+    sc.className = "scope " + scope;
+    $("scopeText").textContent = scope === "global"
+      ? "Live · everyone, via the shared backend" + (data.since ? " · since " + new Date(data.since).toLocaleDateString() : "")
+      : "This browser only — deploy the backend (below) for everyone's numbers";
+    $("t-visitors").textContent = fmt(data.visitors);
+    $("t-products").textContent = fmt(data.products_shared);
+    $("t-orders").textContent = fmt(ev.order_paid);
+    $("t-addcart").textContent = fmt(ev.add_to_cart);
+
+    var top = ev[STEPS[0][0]] || 0, prev = top, html = "";
+    for (var i = 0; i < STEPS.length; i++) {
+      var k = STEPS[i][0], v = ev[k] || 0;
+      var w = top ? Math.max(2, v / top * 100) : 0;
+      var conv = i === 0 ? "" : '<span class="pct">' + (prev ? Math.round(v / prev * 100) : 0) + "%</span>";
+      html += '<div class="frow"><span class="lab">' + STEPS[i][1] + '</span>' +
+        '<span class="track"><i style="width:' + w + '%"></i></span>' +
+        '<span class="val"><b>' + fmt(v) + "</b> " + conv + "</span></div>";
+      prev = v;
+    }
+    $("funnel").innerHTML = html;
+    var cr = top && ev.order_paid ? (ev.order_paid / top * 100).toFixed(1) : "0.0";
+    $("note").textContent = "Overall conversion (visit → order paid): " + cr + "%" +
+      (ev.product_created ? " · " + fmt(ev.product_created) + " products added · " : " · ") +
+      (ev.stress_open ? fmt(ev.stress_open) + " stress-arena opens" : "");
+  }
+
+  function localData() {
+    var c = {};
+    try { c = JSON.parse(localStorage.getItem("bb-telemetry-v1") || "{}"); } catch (e) {}
+    var vid = null; try { vid = localStorage.getItem("bb-visitor"); } catch (e) {}
+    return { events: c, visitors: vid ? 1 : 0, products_shared: c.product_created || 0, since: null };
+  }
+
+  async function load() {
+    var base = (window.BAZAAR_SYNC || "").replace(/\/+$/, "");
+    if (base) {
+      try {
+        var r = await fetch(base + "/metrics", { mode: "cors" });
+        if (r.ok) { render(await r.json(), "global"); return; }
+      } catch (e) { /* fall back to local */ }
+    }
+    render(localData(), "local");
+  }
+
+  load();
+  setInterval(load, 10000);
+})();
+</script>
+</body>
+</html>

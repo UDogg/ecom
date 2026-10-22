@@ -98,7 +98,7 @@
 <body>
 <header class="top">
   <a class="brand" href="./"><span class="mark">B</span> Babel Bazaar</a>
-  <nav><a href="demo/">Demo</a><a href="stress.html" aria-current="page">Stress test</a><a href="docs/aws.html">Docs</a><a href="https://github.com/UDogg/ecom">GitHub</a></nav>
+  <nav><a href="demo/">Demo</a><a href="stress.html" aria-current="page">Stress test</a><a href="metrics.html">Metrics</a><a href="docs/aws.html">Docs</a><a href="https://github.com/UDogg/ecom">GitHub</a></nav>
 </header>
 
 <div class="wrap">
@@ -469,5 +469,7 @@
   setTimeout(tick, 300);
 })();
 </script>
+<script src="config.js"></script>
+<script>window.bzTrack&&bzTrack("stress_open")</script>
 </body>
 </html>

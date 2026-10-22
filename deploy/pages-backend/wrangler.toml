@@ -1,0 +1,11 @@
+# Cloudflare Worker for the GitHub Pages demo's shared persistence + metrics (see README.md).
+name = "babel-bazaar-demo"
+main = "worker.js"
+compatibility_date = "2026-01-01"
+
+# One KV namespace holds the shared catalog and the usage counters. Create it with:
+#   wrangler kv namespace create BAZAAR
+# then paste the printed id below (and, optionally, a preview_id for `wrangler dev`).
+kv_namespaces = [
+  { binding = "BAZAAR", id = "PUT_YOUR_KV_NAMESPACE_ID_HERE" },
+]
