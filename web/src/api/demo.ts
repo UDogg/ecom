@@ -88,7 +88,7 @@ export function createDemoApi(): Api {
             changed = true;
           }
         }
-        for (const rp of (remote.products ?? []) as StoredProduct[]) {
+        for (const rp of (remote.products ?? []) as unknown as StoredProduct[]) {
           if (!rp || typeof rp.id !== "string") continue;
           const i = state.products.findIndex((p) => p.id === rp.id);
           if (i < 0) { state.products.push(rp); changed = true; }

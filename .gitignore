@@ -28,3 +28,6 @@ stress/reports/*
 .DS_Store
 /.bench-loadgen
 /_site/
+
+# Demo backend URL, provisioned at build time and cached by CI
+site/.backend-url

@@ -24,15 +24,10 @@ for (const f of ["index.html", "site.css", "stress.html", "landing.js", "metrics
 cpSync(join(root, "web/public/favicon.svg"), join(out, "favicon.svg"));
 writeFileSync(join(out, ".nojekyll"), "");
 
-// config.js: the optional shared-backend URL (deploy/pages-backend) baked in from DEMO_SYNC_URL, plus a
-// tiny anonymous beacon the static pages use. Empty URL = local-only; the site still works unchanged.
+// config.js: the optional shared-backend document URL (provision-backend.mjs / deploy/pages-backend)
+// baked in from DEMO_SYNC_URL, for the metrics page to read. Empty = local-only; the site is unchanged.
 const syncUrl = (process.env.DEMO_SYNC_URL || "").trim().replace(/\/+$/, "");
-writeFileSync(join(out, "config.js"),
-  `window.BAZAAR_SYNC=${JSON.stringify(syncUrl)};\n` +
-  `window.bzTrack=function(n){try{var K="bb-telemetry-v1",V="bb-visitor",` +
-  `c=JSON.parse(localStorage.getItem(K)||"{}");c[n]=(c[n]||0)+1;localStorage.setItem(K,JSON.stringify(c));` +
-  `var v=localStorage.getItem(V);if(!v){v=(self.crypto&&crypto.randomUUID&&crypto.randomUUID())||String(Math.random());localStorage.setItem(V,v);}` +
-  `var b=window.BAZAAR_SYNC;if(b){fetch(b+"/event",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({name:n,vid:v}),mode:"cors"}).catch(function(){});}}catch(e){}};\n`);
+writeFileSync(join(out, "config.js"), `window.BAZAAR_SYNC=${JSON.stringify(syncUrl)};\n`);
 
 // Vendor three.js (the landing page's WebGL hero) from web's node_modules, so the site carries no
 // runtime CDN dependency. The demo build below runs `npm ci` in web/, which installs it.

@@ -116,8 +116,13 @@
     var base = (window.BAZAAR_SYNC || "").replace(/\/+$/, "");
     if (base) {
       try {
-        var r = await fetch(base + "/metrics", { mode: "cors" });
-        if (r.ok) { render(await r.json(), "global"); return; }
+        var r = await fetch(base, { mode: "cors" });
+        if (r.ok) {
+          var d = await r.json();
+          var m = d && d.metrics ? d.metrics : {};
+          render({ events: m.events || {}, visitors: (m.visitors || []).length, products_shared: (d.products || []).length, since: d.since || null }, "global");
+          return;
+        }
       } catch (e) { /* fall back to local */ }
     }
     render(localData(), "local");

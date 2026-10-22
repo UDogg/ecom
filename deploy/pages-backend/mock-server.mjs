@@ -1,49 +1,46 @@
-// A local, in-memory stand-in for worker.js: the same routes on http://127.0.0.1:8787, for developing
-// the demo's shared-persistence and metrics against something real without deploying to Cloudflare.
-//   node deploy/pages-backend/mock-server.mjs   then open the demo with ?sync=http://127.0.0.1:8787
+// A local, in-memory stand-in for jsonblob.com (the demo's default shared backend), so you can develop
+// and test the demo's persistence/metrics without the real service: the same create / GET / PUT a JSON
+// document semantics the client uses.
+//   node deploy/pages-backend/mock-server.mjs
+//   JSONBLOB_API=http://127.0.0.1:8787/api/jsonBlob node site/provision-backend.mjs   # create one
+//   open the demo with ?sync=http://127.0.0.1:8787/api/jsonBlob/<id>
 import { createServer } from "node:http";
+import { randomUUID } from "node:crypto";
 
 const PORT = Number(process.env.PORT || 8787);
-const EVENTS = ["visit", "product_view", "add_to_cart", "checkout", "order_paid", "product_created", "stress_open"];
-const catalog = { products: [], categories: [], rev: 0 };
-const metrics = { events: {}, visitors: new Set(), since: new Date().toISOString() };
-
+const store = new Map();
 const cors = {
   "access-control-allow-origin": "*",
-  "access-control-allow-methods": "GET, POST, OPTIONS",
-  "access-control-allow-headers": "content-type",
+  "access-control-allow-methods": "GET, POST, PUT, OPTIONS",
+  "access-control-allow-headers": "content-type, accept",
+  "access-control-expose-headers": "Location",
 };
-const send = (res, status, body) => res.writeHead(status, { "content-type": "application/json", ...cors }).end(JSON.stringify(body));
-
-function cleanProduct(p) {
-  if (!p || typeof p !== "object" || typeof p.id !== "string") return null;
-  if (!p.sku || !p.name) return null;
-  return { ...p, status: p.status === "archived" ? "archived" : "active", updated_at: new Date().toISOString() };
-}
 
 createServer((req, res) => {
   if (req.method === "OPTIONS") return res.writeHead(204, cors).end();
-  const path = new URL(req.url, "http://x").pathname.replace(/\/+$/, "") || "/";
+  const url = new URL(req.url, "http://x");
+  const path = url.pathname;
   let raw = "";
   req.on("data", (c) => (raw += c));
   req.on("end", () => {
-    const body = raw ? JSON.parse(raw) : {};
-    if (req.method === "GET" && (path === "/" || path === "/health")) return send(res, 200, { ok: true });
-    if (req.method === "GET" && path === "/state") return send(res, 200, { products: catalog.products, categories: catalog.categories });
-    if (req.method === "POST" && path === "/product") {
-      const p = cleanProduct(body.product);
-      if (!p) return send(res, 400, { ok: false });
-      const i = catalog.products.findIndex((x) => x.id === p.id);
-      if (i >= 0) catalog.products[i] = p; else catalog.products.push(p);
-      if (!catalog.categories.some((c) => c.slug === p.category)) catalog.categories.push({ slug: p.category, name: p.category });
-      return send(res, 200, { ok: true });
+    // Create: POST /api/jsonBlob  -> 201 + Location
+    if (req.method === "POST" && path === "/api/jsonBlob") {
+      const id = randomUUID();
+      store.set(id, raw || "{}");
+      return res.writeHead(201, { ...cors, location: `/api/jsonBlob/${id}` }).end(raw || "{}");
     }
-    if (req.method === "POST" && path === "/event") {
-      if (EVENTS.includes(body.name)) { metrics.events[body.name] = (metrics.events[body.name] || 0) + 1; if (body.vid) metrics.visitors.add(body.vid); }
-      return send(res, 200, { ok: true });
+    const m = path.match(/^\/api\/jsonBlob\/([\w-]+)$/);
+    if (m) {
+      const id = m[1];
+      if (req.method === "GET") {
+        if (!store.has(id)) return res.writeHead(404, cors).end();
+        return res.writeHead(200, { ...cors, "content-type": "application/json" }).end(store.get(id));
+      }
+      if (req.method === "PUT") {
+        store.set(id, raw || "{}");
+        return res.writeHead(200, { ...cors, "content-type": "application/json" }).end(raw || "{}");
+      }
     }
-    if (req.method === "GET" && path === "/metrics")
-      return send(res, 200, { events: metrics.events, visitors: metrics.visitors.size, products_shared: catalog.products.length, since: metrics.since });
-    return send(res, 404, { error: "not found" });
+    res.writeHead(404, cors).end();
   });
-}).listen(PORT, () => console.log(`mock demo backend on http://127.0.0.1:${PORT}`));
+}).listen(PORT, () => console.log(`mock jsonblob on http://127.0.0.1:${PORT}/api/jsonBlob`));
