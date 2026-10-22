@@ -29,6 +29,22 @@ jobs:
           cache-dependency-path: |
             site/package-lock.json
             web/package-lock.json
+      # Remember the demo's shared-backend URL across deploys so added products and metrics persist.
+      - name: Cache the demo backend URL
+        if: github.event_name != 'pull_request'
+        uses: actions/cache@v4
+        with:
+          path: site/.backend-url
+          key: demo-backend-url-v1
+      # Provision a free, no-account shared document and expose it as DEMO_SYNC_URL (best-effort; never
+      # fails the build). A DEMO_SYNC_URL repo variable, if set, overrides this.
+      - name: Provision the demo backend
+        if: github.event_name != 'pull_request'
+        env:
+          DEMO_SYNC_URL: ${{ vars.DEMO_SYNC_URL }}
+          BACKEND_URL_CACHE: .backend-url   # cwd is site/, matching the cache path site/.backend-url
+        run: node provision-backend.mjs
+        working-directory: site
       - name: Build the site (landing, docs, demo)
         working-directory: site
         run: npm ci --no-audit --no-fund && npm run build

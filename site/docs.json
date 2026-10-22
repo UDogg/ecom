@@ -3,6 +3,7 @@
     { "id": "aws", "title": "Deploying to AWS" },
     { "id": "performance", "title": "Performance and footprint" },
     { "id": "stress-test", "title": "The stress test" },
+    { "id": "demo-persistence", "title": "Demo persistence & metrics" },
     { "id": "dependency-updates", "title": "Dependency updates" }
   ]},
   { "group": "How it is secured", "items": [

@@ -17,6 +17,8 @@ import {
   type ProductQuery,
   type Role,
 } from "./types";
+import { pullState, pushProduct } from "./sync";
+import { track } from "../lib/telemetry";
 
 const KEY = "babel-bazaar-demo-v1";
 const CUSTOMER = "00000000-0000-4000-8000-000000000002";
@@ -69,6 +71,36 @@ export function createDemoApi(): Api {
     state = seed();
     save();
   }
+
+  // One-time merge of the shared community catalog (products any owner added), so a product added on
+  // one device shows up for every future visitor. Best-effort: with no backend configured, or if it is
+  // unreachable, this resolves to a no-op and the demo runs on local state alone.
+  let sharedPromise: Promise<void> | null = null;
+  function ensureShared(): Promise<void> {
+    if (!sharedPromise) {
+      sharedPromise = (async () => {
+        const remote = await pullState();
+        if (!remote) return;
+        let changed = false;
+        for (const rc of remote.categories ?? []) {
+          if (rc?.slug && !state.categories.some((c) => c.slug === rc.slug)) {
+            state.categories.push({ slug: rc.slug, name: rc.name || rc.slug });
+            changed = true;
+          }
+        }
+        for (const rp of (remote.products ?? []) as unknown as StoredProduct[]) {
+          if (!rp || typeof rp.id !== "string") continue;
+          const i = state.products.findIndex((p) => p.id === rp.id);
+          if (i < 0) { state.products.push(rp); changed = true; }
+          else if ((rp.updated_at || "") > (state.products[i]!.updated_at || "")) { state.products[i] = rp; changed = true; }
+        }
+        if (changed) save();
+      })().catch(() => {});
+    }
+    return sharedPromise;
+  }
+  /** Share a product with every future visitor (after a local mutation). */
+  const share = (p: StoredProduct) => pushProduct(p);
 
   const pause = (ms = 90 + Math.random() * 120) => new Promise((r) => setTimeout(r, ms));
   const uuid = () => crypto.randomUUID();
@@ -158,6 +190,7 @@ export function createDemoApi(): Api {
     },
 
     async products(q: ProductQuery) {
+      await ensureShared();
       await pause();
       const text = (q.q ?? "").trim().toLowerCase();
       let all = state.products.filter((p) => p.status === "active"
@@ -177,14 +210,17 @@ export function createDemoApi(): Api {
       return page(all.map(publicProduct), q.page, q.page_size);
     },
     async product(id) {
+      await ensureShared();
       await pause();
       return publicProduct(product(id, true));
     },
     async categories() {
+      await ensureShared();
       await pause(40);
       return state.categories.map((c) => ({ ...c, children: [] }));
     },
     async recommendations(productId, limit = 8) {
+      await ensureShared();
       await pause();
       const base = productId ? state.products.find((p) => p.id === productId) : undefined;
       const pool = state.products.filter((p) => p.status === "active" && p.id !== productId && p.available_quantity > 0);
@@ -270,6 +306,7 @@ export function createDemoApi(): Api {
     admin: {
       async dashboard() {
         need("shop_owner");
+        await ensureShared();
         await pause();
         state.orders.forEach(settle);
         return {
@@ -282,6 +319,7 @@ export function createDemoApi(): Api {
       },
       async products(q) {
         need("shop_owner");
+        await ensureShared();
         await pause();
         const text = (q.q ?? "").toLowerCase();
         const all = state.products.filter((p) => (!q.status || p.status === q.status) && (!q.category || p.category === q.category)
@@ -308,6 +346,8 @@ export function createDemoApi(): Api {
           in_stock: (input.initial_stock ?? 0) > 0, created_at: now, updated_at: now };
         state.products.unshift(p);
         save();
+        share(p);                 // every future visitor will see this product
+        track("product_created");
         return adminProduct(p);
       },
       async update(id, version, change) {
@@ -321,6 +361,7 @@ export function createDemoApi(): Api {
         }
         Object.assign(p, rest, { version: p.version + 1, updated_at: new Date().toISOString() });
         save();
+        share(p);
         return adminProduct(p);
       },
       async archive(id) {
@@ -329,6 +370,7 @@ export function createDemoApi(): Api {
         const p = product(id);
         Object.assign(p, { status: "archived", version: p.version + 1, updated_at: new Date().toISOString() });
         save();
+        share(p);
         return adminProduct(p);
       },
       async restore(id) {
@@ -337,6 +379,7 @@ export function createDemoApi(): Api {
         const p = product(id);
         Object.assign(p, { status: "active", version: p.version + 1, updated_at: new Date().toISOString() });
         save();
+        share(p);
         return adminProduct(p);
       },
       async adjust(id, delta, reason) {
@@ -349,6 +392,7 @@ export function createDemoApi(): Api {
         const a: Adjustment = { id: uuid(), product_id: id, delta, reason, resulting_quantity: p.available_quantity, created_at: new Date().toISOString() };
         state.adjustments.unshift(a);
         save();
+        share(p);
         return a;
       },
       async adjustments(id) {

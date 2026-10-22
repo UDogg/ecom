@@ -20,9 +20,14 @@ const published = new Map(groups.flatMap((g) => g.items).map((d) => [d.id, d]));
 
 rmSync(out, { recursive: true, force: true });
 mkdirSync(out, { recursive: true });
-for (const f of ["index.html", "site.css", "stress.html", "landing.js"]) cpSync(join(here, f), join(out, f));
+for (const f of ["index.html", "site.css", "stress.html", "landing.js", "metrics.html"]) cpSync(join(here, f), join(out, f));
 cpSync(join(root, "web/public/favicon.svg"), join(out, "favicon.svg"));
 writeFileSync(join(out, ".nojekyll"), "");
+
+// config.js: the optional shared-backend document URL (provision-backend.mjs / deploy/pages-backend)
+// baked in from DEMO_SYNC_URL, for the metrics page to read. Empty = local-only; the site is unchanged.
+const syncUrl = (process.env.DEMO_SYNC_URL || "").trim().replace(/\/+$/, "");
+writeFileSync(join(out, "config.js"), `window.BAZAAR_SYNC=${JSON.stringify(syncUrl)};\n`);
 
 // Vendor three.js (the landing page's WebGL hero) from web's node_modules, so the site carries no
 // runtime CDN dependency. The demo build below runs `npm ci` in web/, which installs it.
