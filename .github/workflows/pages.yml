@@ -32,7 +32,7 @@ jobs:
       # Remember the demo's shared-backend URL across deploys so added products and metrics persist.
       - name: Cache the demo backend URL
         if: github.event_name != 'pull_request'
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: site/.backend-url
           key: demo-backend-url-v1
