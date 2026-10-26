@@ -16,12 +16,12 @@
   "dependencies": {
     "@preact/signals": "2.11.3",
     "preact": "11.0.1",
-    "three": "^0.169.0"
+    "three": "^0.186.1"
   },
   "devDependencies": {
-    "@types/three": "^0.169.0",
+    "@types/three": "^0.186.0",
     "typescript": "7.0.2",
-    "vite": "8.3.4",
+    "vite": "8.3.5",
     "vitest": "5.0.5"
   }
 }
