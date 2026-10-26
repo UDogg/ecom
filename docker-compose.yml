@@ -131,7 +131,7 @@ services:
       retries: 12
 
   mailpit:
-    image: axllent/mailpit:v1.31
+    image: axllent/mailpit:v1.32
     profiles: ["core", "full"]
     mem_limit: ${MEM_MAILPIT:-64M}   # ./run.sh sizes it from the machine (scripts/sizing.py)
     cpu_shares: 256
