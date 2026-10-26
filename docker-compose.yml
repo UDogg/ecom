@@ -108,7 +108,7 @@ services:
     networks: [data]
 
   rabbitmq:
-    image: rabbitmq:4.3-management-alpine
+    image: rabbitmq:4.4-management-alpine
     hostname: rabbitmq   # stable node name: the data directory survives re-creation
     user: rabbitmq
     profiles: ["core", "full"]
