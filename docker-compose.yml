@@ -355,7 +355,7 @@ services:
   # "VPN to the private network", as a throwaway container on the app network.
   # It holds no secrets of its own; scripts/breakglass.sh passes them per run.
   opsbox:
-    image: python:3.14-slim
+    image: python:3.15-slim
     profiles: ["ops"]
     entrypoint: ["python", "/scripts/breakglass.py"]
     volumes:
@@ -371,7 +371,7 @@ services:
   # every unsigned, forged, expired and fake-privileged request it sends must be
   # refused. Started on demand by stress/arena.py ("./run.sh stress"); never by `up`.
   redteam:
-    image: python:3.14-slim
+    image: python:3.15-slim
     profiles: ["stress"]
     entrypoint: ["python", "/stress/redteam.py"]
     environment:
