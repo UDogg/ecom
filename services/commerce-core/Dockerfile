@@ -1,6 +1,6 @@
 # Dependencies go into a virtualenv built in a throwaway stage; the runtime image gets the venv
 # and the code only (no pip, no build cache, no test suites of third-party packages).
-FROM python:3.14-slim AS deps
+FROM python:3.15-slim AS deps
 ENV PIP_NO_CACHE_DIR=1 PIP_DISABLE_PIP_VERSION_CHECK=1
 RUN python -m venv /venv
 COPY requirements.txt requirements-dev.txt ./
@@ -19,7 +19,7 @@ RUN /venv/bin/pip uninstall -qy pip \
 FROM deps AS deps-dev
 RUN /venv/bin/pip install -r requirements-dev.txt && /venv/bin/pip uninstall -qy pip
 
-FROM python:3.14-slim AS base
+FROM python:3.15-slim AS base
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PATH=/venv/bin:$PATH
 RUN useradd --system --uid 10001 app
 WORKDIR /app
