@@ -18,7 +18,7 @@
     <description>Identity provider for Babel Bazaar: OIDC sign-in and JWT issuance</description>
 
     <properties>
-        <java.version>21</java.version>
+        <java.version>25</java.version>
     </properties>
 
     <dependencies>

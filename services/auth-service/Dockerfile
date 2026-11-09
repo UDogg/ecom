@@ -1,4 +1,4 @@
-FROM eclipse-temurin:21-jdk-alpine AS build
+FROM eclipse-temurin:25-jdk-alpine AS build
 WORKDIR /src
 COPY .mvn .mvn
 COPY mvnw pom.xml ./
@@ -8,10 +8,10 @@ RUN ./mvnw -q -B package -DskipTests && cp target/auth-service-*.jar /app.jar
 
 # A Java runtime holding only the modules the application uses (jdeps), about a third of a full JRE,
 # and the application unpacked into its jar plus lib/ (the layout class-data sharing needs).
-FROM eclipse-temurin:21-jdk-alpine AS runtime
+FROM eclipse-temurin:25-jdk-alpine AS runtime
 COPY --from=build /app.jar /app.jar
 RUN java -Djarmode=tools -jar /app.jar extract --destination /app \
- && mods=$(jdeps --ignore-missing-deps -q --recursive --multi-release 21 --print-module-deps \
+ && mods=$(jdeps --ignore-missing-deps -q --recursive --multi-release 25 --print-module-deps \
            --class-path '/app/lib/*' /app/app.jar) \
  && jlink --add-modules "$mods,jdk.crypto.ec,jdk.localedata,jdk.naming.dns,jdk.management" \
           --include-locales=en --strip-debug --no-man-pages --no-header-files --compress=zip-6 \
