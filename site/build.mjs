@@ -30,13 +30,16 @@ const syncUrl = (process.env.DEMO_SYNC_URL || "").trim().replace(/\/+$/, "");
 writeFileSync(join(out, "config.js"), `window.BAZAAR_SYNC=${JSON.stringify(syncUrl)};\n`);
 
 // Vendor three.js (the landing page's WebGL hero) from web's node_modules, so the site carries no
-// runtime CDN dependency. The demo build below runs `npm ci` in web/, which installs it.
-const threeSrc = join(root, "web/node_modules/three/build/three.module.js");
-if (existsSync(threeSrc)) {
+// runtime CDN dependency. The demo build below runs `npm ci` in web/, which installs it. Since three
+// 0.187 the entry (three.module.js) re-exports from three.core.js, so both files are copied; any that
+// are missing just mean the hero falls back to its static mock.
+const threeDir = join(root, "web/node_modules/three/build");
+const threeFiles = ["three.module.js", "three.core.js"];
+if (threeFiles.every((f) => existsSync(join(threeDir, f)))) {
   mkdirSync(join(out, "vendor"), { recursive: true });
-  cpSync(threeSrc, join(out, "vendor/three.module.js"));
+  for (const f of threeFiles) cpSync(join(threeDir, f), join(out, "vendor", f));
 } else {
-  console.warn("three.module.js not found in web/node_modules; the landing WebGL hero will fall back to the static mock");
+  console.warn("three build files not found in web/node_modules; the landing WebGL hero will fall back to the static mock");
 }
 
 // ── docs ────────────────────────────────────────────────────────────────────

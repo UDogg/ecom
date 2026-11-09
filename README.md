@@ -275,7 +275,7 @@ The full stack is heavy. Profiles let you run only what you need.
 - Docker Desktop (or Docker Engine) with Compose v2.
 - 8 GB RAM free for the `full` profile; 4 GB is enough for `core`.
 - `make` (optional convenience wrapper).
-- Optional for running services outside containers: Java 21, Python 3.14, Go 1.27, Node.js 24.
+- Optional for running services outside containers: Java 25, Python 3.15, Go 1.27, Node.js 24.
 
 ### Run it
 

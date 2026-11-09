@@ -69,9 +69,9 @@ These live in GitHub, not in the repository (Settings, then Code security):
 
 | Component | Version |
 |---|---|
-| Python | 3.14 (Django 6.1, DRF 3.18, FastAPI 0.143, psycopg 3.3) |
-| Go | 1.27 (pgx 5.11) |
-| Java | 21 LTS (Spring Boot 4.1, Spring Security 7) |
+| Python | 3.15 (Django 6.1, DRF 3.18, FastAPI 0.143, psycopg 3.3) |
+| Go | 1.27 (pgx 5.12) |
+| Java | 25 LTS (Spring Boot 4.1, Spring Security 7) |
 | PostgreSQL | 16 |
-| RabbitMQ | 4.3 |
+| RabbitMQ | 4.4 |
 | GitHub Actions | checkout v7, setup-python v7, setup-go v7, setup-java v6 |
